@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A Streamlit app where a user enters origin, destination, dates, travelers, budget (USD/INR) and preferences, and three parallel specialist agents (flights, stay, activities) backed by Amadeus produce typed picks that a deterministic orchestrator validates against the budget (retrying over-budget agents) before a writer agent renders a day-by-day itinerary, saved to SQLite.
+**Goal:** A web app (React UI built from 21st.dev components, FastAPI backend) where a user enters origin, destination, dates, travelers, budget (USD/INR) and preferences, and three parallel specialist agents (flights, stay, activities) backed by Amadeus produce typed picks that a deterministic orchestrator validates against the budget (retrying over-budget agents) before a writer agent renders a day-by-day itinerary, saved to SQLite.
 
-**Architecture:** `orchestrator.plan()` is plain async Python: resolve cities via Amadeus, split budget 40/35/25, `asyncio.gather` three OpenAI Agents SDK agents (each with one Amadeus `function_tool` and a Pydantic `output_type`), sum `.total`, re-run the worst offender with a reduced cap up to 2 times, then call a tool-less writer agent for Markdown. `app.py` drives it with `st.status` boxes fed by an `on_event` callback and persists results through `db.py`.
+**Architecture:** `orchestrator.plan()` is plain async Python: resolve cities via Amadeus, split budget 40/35/25, `asyncio.gather` three OpenAI Agents SDK agents (each with one Amadeus `function_tool` and a Pydantic `output_type`), sum `.total`, re-run the worst offender with a reduced cap up to 2 times, then call a tool-less writer agent for Markdown. `api.py` exposes it as an SSE stream (one event per `on_event` call, then the itinerary) and persists results through `db.py`; `web/` is a Vite + React + Tailwind + shadcn app using 21st.dev's Booking Form and AI Task List components, served from `web/dist` by FastAPI in one Docker container on Hugging Face Spaces.
 
-**Tech Stack:** Python 3.14, openai-agents 0.22, amadeus 12, streamlit 1.64, python-dotenv, pytest, sqlite3 (stdlib), urllib (stdlib) for frankfurter.app FX.
+**Tech Stack:** Python 3.14, openai-agents 0.22, amadeus 12, fastapi + uvicorn, python-dotenv, pytest, sqlite3 (stdlib), urllib (stdlib) for frankfurter.app FX; Node 24, Vite, React 19, TypeScript, Tailwind 4, shadcn, 21st.dev components (via the 21st.dev MCP connector), react-markdown; Docker; Hugging Face Spaces.
 
 ## Global Constraints
 
@@ -18,7 +18,9 @@
 - Budget split constants: flight 0.40, stay 0.35, activity 0.25. `MAX_RETRIES = 2`.
 - Tests never hit OpenAI or Amadeus.
 - Commit after every task with the `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>` trailer.
-- Venv already exists at `.venv`; run Python as `.venv/Scripts/python` and tests as `.venv/Scripts/python -m pytest`.
+- Venv already exists at `.venv`; run Python as `.venv/Scripts/python` and tests as `.venv/Scripts/python -m pytest`. Install new Python deps with `.venv/Scripts/python -m pip install fastapi uvicorn httpx` before Task 4.
+- Frontend lives in `web/`; 21st.dev component code is fetched with the 21st.dev MCP `get_component` tool (ids 7508 and 23793), never hand-copied from the website.
+- Container listens on port 7860 (Hugging Face Spaces requirement).
 
 ---
 
@@ -38,9 +40,11 @@
 ```
 openai-agents
 amadeus
-streamlit
+fastapi
+uvicorn
 python-dotenv
 pytest
+httpx
 ```
 
 `.env.example`:
@@ -59,7 +63,8 @@ AMADEUS_CLIENT_SECRET=...
 plans.db
 __pycache__/
 .pytest_cache/
-.streamlit/secrets.toml
+web/node_modules/
+web/dist/
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -620,7 +625,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'db'`
 - [ ] **Step 3: Write `db.py`**
 
 ```python
-"""Plan history in a local SQLite file. Ephemeral on Streamlit Cloud (resets on redeploy) - fine for a demo."""
+"""Plan history in a local SQLite file. Ephemeral inside the Hugging Face Spaces container (resets on rebuild) - fine for a demo."""
 import json
 import sqlite3
 from pathlib import Path
@@ -672,96 +677,498 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 4: Streamlit app + README + live smoke test
+### Task 4: FastAPI streaming API
 
 **Files:**
-- Create: `app.py`, `README.md`
+- Create: `api.py`
+- Test: `test_api.py`
 
 **Interfaces:**
-- Consumes: `orchestrator.PlanRequest`, `orchestrator.plan`, `db.save/list_plans/load`.
+- Consumes: `orchestrator.PlanRequest`, `orchestrator.plan`, `orchestrator.PlanResult`, `db.save/list_plans/load`.
+- Produces: `GET /api/plan` (query params `origin, destination, depart, return_date, travelers, budget, currency, preferences`) → `text/event-stream`, each line `data: <json>\n\n`. Progress events are `{"kind": "flight"|"stay"|"activity"|"writer", "status": "start"|"done"|"retry", "detail": str}`; terminal event is `{"kind": "plan", "status": "done", "itinerary": str, "totals": {...}, "over_budget": bool, "id": int}` or `{"kind": "plan", "status": "error", "detail": str}`. `GET /api/plans` → `[{id, created_at, title, total, currency}]`. `GET /api/plans/{id}` → `{"itinerary": str}`. Static frontend mounted at `/` from `web/dist` when that folder exists.
 
-- [ ] **Step 1: Write `app.py`**
+- [ ] **Step 1: Write the failing tests**
+
+`test_api.py`:
+```python
+import json
+
+from fastapi.testclient import TestClient
+
+import api
+import db
+from orchestrator import PlanResult
+
+
+def fake_plan(events):
+    async def plan(req, on_event):
+        for kind, status, detail in events:
+            on_event(kind, status, detail)
+        return PlanResult("# itinerary", {"flight": 400.0, "stay": 300.0, "activity": 200.0}, {}, False)
+    return plan
+
+
+def sse_events(text):
+    return [json.loads(line[len("data: "):]) for line in text.splitlines() if line.startswith("data: ")]
+
+
+PARAMS = dict(origin="Madrid", destination="Paris", depart="2026-10-10", return_date="2026-10-14",
+              travelers=1, budget=1000, currency="USD", preferences="museums")
+
+
+def test_plan_streams_events_then_result_and_saves(monkeypatch, tmp_path):
+    monkeypatch.setattr(db, "DB", tmp_path / "t.db")
+    monkeypatch.setattr(api, "plan", fake_plan([("flight", "start", "cap 400 USD"), ("flight", "done", "380 USD")]))
+    monkeypatch.setenv("OPENAI_API_KEY", "x"); monkeypatch.setenv("AMADEUS_CLIENT_ID", "x"); monkeypatch.setenv("AMADEUS_CLIENT_SECRET", "x")
+    client = TestClient(api.app)
+
+    r = client.get("/api/plan", params=PARAMS)
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    events = sse_events(r.text)
+    assert events[0] == {"kind": "flight", "status": "start", "detail": "cap 400 USD"}
+    assert events[1] == {"kind": "flight", "status": "done", "detail": "380 USD"}
+    assert events[2]["kind"] == "plan" and events[2]["status"] == "done"
+    assert events[2]["itinerary"] == "# itinerary" and events[2]["over_budget"] is False
+
+    plans = client.get("/api/plans").json()
+    assert len(plans) == 1 and plans[0]["title"] == "Madrid → Paris 2026-10-10" and plans[0]["total"] == 900.0
+    assert client.get(f"/api/plans/{plans[0]['id']}").json() == {"itinerary": "# itinerary"}
+
+
+def test_plan_error_is_streamed_not_raised(monkeypatch, tmp_path):
+    monkeypatch.setattr(db, "DB", tmp_path / "t.db")
+    async def boom(req, on_event):
+        raise ValueError("Amadeus does not know a city called 'Atlantis'")
+    monkeypatch.setattr(api, "plan", boom)
+    monkeypatch.setenv("OPENAI_API_KEY", "x"); monkeypatch.setenv("AMADEUS_CLIENT_ID", "x"); monkeypatch.setenv("AMADEUS_CLIENT_SECRET", "x")
+    r = TestClient(api.app).get("/api/plan", params=PARAMS)
+    assert sse_events(r.text) == [{"kind": "plan", "status": "error", "detail": "Amadeus does not know a city called 'Atlantis'"}]
+
+
+def test_plan_rejects_bad_input(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "x"); monkeypatch.setenv("AMADEUS_CLIENT_ID", "x"); monkeypatch.setenv("AMADEUS_CLIENT_SECRET", "x")
+    client = TestClient(api.app)
+    assert client.get("/api/plan", params={**PARAMS, "return_date": "2026-10-09"}).status_code == 422
+    assert client.get("/api/plan", params={**PARAMS, "currency": "EUR"}).status_code == 422
+    assert client.get("/api/plan", params={**PARAMS, "travelers": 0}).status_code == 422
+
+
+def test_plan_reports_missing_keys(monkeypatch):
+    monkeypatch.delenv("AMADEUS_CLIENT_SECRET", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "x"); monkeypatch.setenv("AMADEUS_CLIENT_ID", "x")
+    r = TestClient(api.app).get("/api/plan", params=PARAMS)
+    assert r.status_code == 503 and "AMADEUS_CLIENT_SECRET" in r.json()["detail"]
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `.venv/Scripts/python -m pytest test_api.py -q`
+Expected: FAIL — `ModuleNotFoundError: No module named 'api'`
+
+- [ ] **Step 3: Write `api.py`**
 
 ```python
+"""FastAPI front door: streams orchestrator progress over SSE and serves the built React app."""
 import asyncio
+import json
 import os
 from dataclasses import asdict
-from datetime import date, timedelta
+from datetime import date
+from pathlib import Path
+from typing import Literal
 
-import streamlit as st
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 import db
 from orchestrator import PlanRequest, plan
 
-load_dotenv()  # local dev; on Streamlit Cloud, dashboard secrets are exported as env vars automatically
+load_dotenv()
+app = FastAPI(title="Vacaya")
 
-st.set_page_config(page_title="Vacaya", page_icon="🧳", layout="wide")
-st.title("Vacaya - multi-agent travel planner")
+REQUIRED_KEYS = ("OPENAI_API_KEY", "AMADEUS_CLIENT_ID", "AMADEUS_CLIENT_SECRET")
 
-missing = [k for k in ("OPENAI_API_KEY", "AMADEUS_CLIENT_ID", "AMADEUS_CLIENT_SECRET") if not os.getenv(k)]
-if missing:
-    st.error(f"Missing secrets: {', '.join(missing)}. Put them in .env locally or in Streamlit Cloud secrets.")
-    st.stop()
 
-LABELS = {"flight": "✈️ Flight agent", "stay": "🏨 Stay agent", "activity": "🎟️ Activity agent", "writer": "📝 Itinerary writer"}
+@app.get("/api/plans")
+def list_plans():
+    return [dict(zip(("id", "created_at", "title", "total", "currency"), row)) for row in db.list_plans()]
 
-with st.sidebar:
-    st.header("Past plans")
-    for pid, created, title, total, cur in db.list_plans():
-        if st.button(f"{title} · {total:,.0f} {cur}", key=f"plan{pid}", width="stretch"):
-            st.session_state["md"] = db.load(pid)
 
-with st.form("trip"):
-    c1, c2 = st.columns(2)
-    origin = c1.text_input("From", "Madrid")
-    destination = c2.text_input("To", "Paris")
-    depart = c1.date_input("Depart", date.today() + timedelta(days=30))
-    ret = c2.date_input("Return", date.today() + timedelta(days=34))
-    travelers = c1.number_input("Travelers", 1, 9, 1)
-    currency = c2.selectbox("Currency", ["USD", "INR"])
-    budget = st.number_input("Total budget", min_value=100.0, value=2000.0, step=100.0)
-    prefs = st.text_area("Preferences", placeholder="non-stop flights, boutique hotel near the centre, museums, vegetarian food, no nightlife")
-    go = st.form_submit_button("Plan my trip", type="primary")
+@app.get("/api/plans/{plan_id}")
+def get_plan(plan_id: int):
+    return {"itinerary": db.load(plan_id)}
 
-if go:
-    if ret <= depart:
-        st.error("Return date must be after departure.")
-        st.stop()
-    req = PlanRequest(origin, destination, depart, ret, int(travelers), float(budget), currency, prefs)
-    boxes = {k: st.status(label, state="running") for k, label in LABELS.items()}
 
-    def on_event(kind, status, detail):
-        box = boxes[kind]
-        if status == "start":
-            box.update(label=f"{LABELS[kind]} - searching ({detail})" if detail else f"{LABELS[kind]} - writing", state="running")
-        elif status == "retry":
-            box.write(f"Budget check failed: {detail}. Re-running.")
-            box.update(label=f"{LABELS[kind]} - retrying", state="running", expanded=True)
-        elif status == "done":
-            box.update(label=f"{LABELS[kind]} - done {detail}", state="complete")
+@app.get("/api/plan")
+async def stream_plan(
+    origin: str = Query(min_length=2),
+    destination: str = Query(min_length=2),
+    depart: date = Query(),
+    return_date: date = Query(),
+    travelers: int = Query(1, ge=1, le=9),
+    budget: float = Query(gt=0),
+    currency: Literal["USD", "INR"] = "USD",
+    preferences: str = "",
+):
+    if return_date <= depart:
+        raise HTTPException(422, "return_date must be after depart")
+    missing = [k for k in REQUIRED_KEYS if not os.getenv(k)]
+    if missing:
+        raise HTTPException(503, f"Missing secrets: {', '.join(missing)}")
 
-    try:
-        result = asyncio.run(plan(req, on_event))
-    except Exception as e:  # surfaced to the user; nothing to recover
-        st.error(f"Planning failed: {e}")
-        st.stop()
+    req = PlanRequest(origin, destination, depart, return_date, travelers, budget, currency, preferences)
+    queue: asyncio.Queue = asyncio.Queue()
 
-    st.session_state["md"] = result.itinerary_md
-    db.save(f"{origin} → {destination} {depart}", asdict(req), result.itinerary_md, sum(result.totals.values()), currency)
-    if result.over_budget:
-        st.warning(f"Still over budget after retries: {sum(result.totals.values()):,.0f} {currency} vs {budget:,.0f} {currency}.")
-    else:
-        st.success(f"Within budget: {sum(result.totals.values()):,.0f} {currency} of {budget:,.0f} {currency}.")
+    async def work():
+        try:
+            result = await plan(req, lambda kind, status, detail: queue.put_nowait({"kind": kind, "status": status, "detail": detail}))
+            total = sum(result.totals.values())
+            pid = db.save(f"{origin} → {destination} {depart}", asdict(req), result.itinerary_md, total, currency)
+            queue.put_nowait({"kind": "plan", "status": "done", "id": pid, "itinerary": result.itinerary_md,
+                              "totals": result.totals, "over_budget": result.over_budget})
+        except Exception as e:  # surfaced to the client as the terminal event
+            queue.put_nowait({"kind": "plan", "status": "error", "detail": str(e)})
 
-if "md" in st.session_state:
-    st.markdown(st.session_state["md"])
-    st.download_button("Download itinerary (.md)", st.session_state["md"], "itinerary.md")
+    async def events():
+        task = asyncio.create_task(work())
+        while True:
+            ev = await queue.get()
+            yield f"data: {json.dumps(ev)}\n\n"
+            if ev["kind"] == "plan":
+                break
+        await task
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+
+dist = Path(__file__).with_name("web") / "dist"
+if dist.exists():
+    app.mount("/", StaticFiles(directory=dist, html=True), name="web")
 ```
 
-- [ ] **Step 2: Write `README.md`**
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `.venv/Scripts/python -m pytest -q`
+Expected: `13 passed`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add api.py test_api.py
+git commit -m "Add FastAPI SSE endpoint and plan history routes
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 5: React frontend with 21st.dev components
+
+**Files:**
+- Create: `web/` (Vite React-TS scaffold), `web/src/App.tsx`, `web/src/lib/api.ts`, `web/src/components/TripForm.tsx`, `web/src/components/AgentProgress.tsx`, `web/src/components/ui/*` (from 21st.dev + shadcn), `web/vite.config.ts` (proxy), `web/src/index.css`
+
+**Interfaces:**
+- Consumes: the SSE contract and `/api/plans*` routes from Task 4.
+- Produces: `web/dist` after `npm run build`, which `api.py` serves.
+
+- [ ] **Step 1: Scaffold Vite + Tailwind + shadcn**
+
+```bash
+cd C:/Users/Dell/Desktop/vacaya
+npm create vite@latest web -- --template react-ts
+cd web
+npm install
+npm install tailwindcss @tailwindcss/vite react-markdown remark-gfm @tailwindcss/typography
+npx shadcn@latest init -y -d
+```
+
+`web/vite.config.ts`:
+```ts
+import path from "node:path";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
+  server: { proxy: { "/api": "http://localhost:8000" } },
+});
+```
+
+Ensure `web/src/index.css` starts with:
+```css
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+```
+(followed by whatever `shadcn init` generated). Ensure `web/tsconfig.json` and `web/tsconfig.app.json` both have `"baseUrl": "."` and `"paths": {"@/*": ["./src/*"]}` under `compilerOptions` (shadcn init usually adds these; verify).
+
+- [ ] **Step 2: Fetch the two 21st.dev components through the connector**
+
+Call the 21st.dev MCP `get_component` with `id: 7508` (Booking Form by lavikatiyar) and `id: 23793` (AI Task List by educalvolpz). Each result contains the component source, its demo, and `registryDependencies`. For each:
+1. Write the component source to `web/src/components/ui/<name>.tsx`.
+2. Install its registry deps: `npx shadcn@latest add <dep> <dep>` (e.g. `button input label calendar popover`) and its npm deps (e.g. `npm install framer-motion lucide-react date-fns`).
+
+If a result comes back `locked` (paywall) or `found: false`, substitute: for the form, `npx shadcn@latest add button input label select textarea card` and hand-write `TripForm.tsx` with those primitives; for the progress list, hand-write `AgentProgress.tsx` with `card` + `lucide-react` icons. Note the substitution in the commit message.
+
+- [ ] **Step 3: Write `web/src/lib/api.ts`**
+
+```ts
+export type TripInput = {
+  origin: string; destination: string; depart: string; return_date: string;
+  travelers: number; budget: number; currency: "USD" | "INR"; preferences: string;
+};
+export type AgentKind = "flight" | "stay" | "activity" | "writer";
+export type ProgressEvent = { kind: AgentKind; status: "start" | "done" | "retry"; detail: string };
+export type PlanDone = { kind: "plan"; status: "done"; id: number; itinerary: string; totals: Record<string, number>; over_budget: boolean };
+export type PlanError = { kind: "plan"; status: "error"; detail: string };
+export type SseEvent = ProgressEvent | PlanDone | PlanError;
+export type SavedPlan = { id: number; created_at: string; title: string; total: number; currency: string };
+
+export function streamPlan(input: TripInput, onEvent: (e: SseEvent) => void, onFail: (msg: string) => void) {
+  const qs = new URLSearchParams(Object.entries(input).map(([k, v]) => [k, String(v)]));
+  const es = new EventSource(`/api/plan?${qs}`);
+  es.onmessage = (m) => {
+    const ev = JSON.parse(m.data) as SseEvent;
+    onEvent(ev);
+    if (ev.kind === "plan") es.close();
+  };
+  es.onerror = async () => {
+    es.close();
+    // EventSource hides HTTP status; re-fetch to read the 4xx/5xx body for the message
+    const r = await fetch(`/api/plan?${qs}`, { headers: { Accept: "application/json" } }).catch(() => null);
+    onFail(r && !r.ok ? ((await r.json().catch(() => ({}))).detail ?? `HTTP ${r.status}`) : "Connection lost");
+  };
+  return () => es.close();
+}
+
+export const listPlans = () => fetch("/api/plans").then((r) => r.json() as Promise<SavedPlan[]>);
+export const loadPlan = (id: number) => fetch(`/api/plans/${id}`).then((r) => r.json() as Promise<{ itinerary: string }>);
+```
+
+- [ ] **Step 4: Write `web/src/components/TripForm.tsx`**
+
+Adapt the 21st.dev Booking Form's markup and animation to these fields, keeping its visual style. Props contract:
+
+```tsx
+import { useState } from "react";
+import type { TripInput } from "@/lib/api";
+
+const plusDays = (n: number) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+
+export function TripForm({ onSubmit, disabled }: { onSubmit: (t: TripInput) => void; disabled: boolean }) {
+  const [t, set] = useState<TripInput>({
+    origin: "Madrid", destination: "Paris", depart: plusDays(30), return_date: plusDays(34),
+    travelers: 1, budget: 2000, currency: "USD", preferences: "",
+  });
+  const upd = <K extends keyof TripInput>(k: K, v: TripInput[K]) => set((s) => ({ ...s, [k]: v }));
+  const invalid = t.return_date <= t.depart || t.budget <= 0 || !t.origin || !t.destination;
+
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); if (!invalid) onSubmit(t); }} className="...21st.dev form classes...">
+      {/* origin / destination text inputs */}
+      {/* depart / return <input type="date"> */}
+      {/* travelers <input type="number" min=1 max=9> */}
+      {/* budget <input type="number" min=1 step=50> + currency <select> USD/INR */}
+      {/* preferences <textarea> placeholder "non-stop flights, boutique hotel near the centre, museums, vegetarian food" */}
+      <button type="submit" disabled={disabled || invalid}>Plan my trip</button>
+    </form>
+  );
+}
+```
+
+Use native `<input type="date">`, `<input type="number">` and `<select>` styled with the component's classes; do not add a date-picker library.
+
+- [ ] **Step 5: Write `web/src/components/AgentProgress.tsx`**
+
+Feed the 21st.dev AI Task List with four tasks derived from the event log. Mapping:
+
+```tsx
+import type { ProgressEvent, AgentKind } from "@/lib/api";
+
+const LABEL: Record<AgentKind, string> = { flight: "Flight agent", stay: "Stay agent", activity: "Activity agent", writer: "Itinerary writer" };
+export type TaskState = "pending" | "running" | "done" | "failed";
+
+export function toTasks(events: ProgressEvent[], failed: boolean) {
+  return (Object.keys(LABEL) as AgentKind[]).map((kind) => {
+    const mine = events.filter((e) => e.kind === kind);
+    const last = mine.at(-1);
+    const state: TaskState = failed && last?.status !== "done" ? "failed" : !last ? "pending" : last.status === "done" ? "done" : "running";
+    const subtasks = mine.filter((e) => e.status === "retry").map((e, i) => ({ title: `Retry ${i + 1}: ${e.detail}`, state: "done" as TaskState }));
+    const detail = last?.status === "done" ? last.detail : last?.status === "start" ? last.detail : "";
+    return { id: kind, title: LABEL[kind], detail, state, subtasks };
+  });
+}
+
+export function AgentProgress({ events, failed }: { events: ProgressEvent[]; failed: boolean }) {
+  const tasks = toTasks(events, failed);
+  return /* render the 21st.dev AI Task List with `tasks` — map its expected prop shape onto {title, detail, state, subtasks} */;
+}
+```
+
+- [ ] **Step 6: Write `web/src/App.tsx`**
+
+```tsx
+import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { TripForm } from "@/components/TripForm";
+import { AgentProgress } from "@/components/AgentProgress";
+import { listPlans, loadPlan, streamPlan, type PlanDone, type ProgressEvent, type SavedPlan, type TripInput } from "@/lib/api";
+
+type Phase = "idle" | "running" | "done" | "error";
+
+export default function App() {
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [events, setEvents] = useState<ProgressEvent[]>([]);
+  const [result, setResult] = useState<PlanDone | null>(null);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState<SavedPlan[]>([]);
+  const [currency, setCurrency] = useState("USD");
+
+  useEffect(() => { listPlans().then(setSaved); }, [phase]);
+
+  function start(t: TripInput) {
+    setPhase("running"); setEvents([]); setResult(null); setError(""); setCurrency(t.currency);
+    streamPlan(t, (ev) => {
+      if (ev.kind !== "plan") return setEvents((es) => [...es, ev]);
+      if (ev.status === "done") { setResult(ev); setPhase("done"); }
+      else { setError(ev.detail); setPhase("error"); }
+    }, (msg) => { setError(msg); setPhase("error"); });
+  }
+
+  async function open(p: SavedPlan) {
+    const { itinerary } = await loadPlan(p.id);
+    setResult({ kind: "plan", status: "done", id: p.id, itinerary, totals: {}, over_budget: false });
+    setCurrency(p.currency); setEvents([]); setPhase("done");
+  }
+
+  const total = result ? Object.values(result.totals).reduce((a, b) => a + b, 0) : 0;
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="mx-auto grid max-w-6xl gap-6 p-4 md:grid-cols-[260px_1fr] md:p-8">
+        <aside>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Past plans</h2>
+          <ul className="space-y-1">
+            {saved.map((p) => (
+              <li key={p.id}>
+                <button onClick={() => open(p)} className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted">
+                  {p.title} · {p.total.toLocaleString()} {p.currency}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </aside>
+        <main className="space-y-6">
+          <header>
+            <h1 className="text-3xl font-bold">Vacaya</h1>
+            <p className="text-muted-foreground">Three specialist agents, one budget, one itinerary.</p>
+          </header>
+          <TripForm onSubmit={start} disabled={phase === "running"} />
+          {(phase === "running" || events.length > 0) && <AgentProgress events={events} failed={phase === "error"} />}
+          {phase === "error" && <p role="alert" className="rounded-md border border-destructive p-3 text-destructive">{error}</p>}
+          {result && (
+            <section className="space-y-3">
+              {result.totals.flight !== undefined && (
+                <p className={result.over_budget ? "text-destructive" : "text-green-600"}>
+                  {result.over_budget ? "Over budget after retries" : "Within budget"}: {total.toLocaleString()} {currency}
+                </p>
+              )}
+              <article className="prose prose-neutral max-w-none dark:prose-invert">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.itinerary}</ReactMarkdown>
+              </article>
+              <a className="inline-block text-sm underline" download="itinerary.md"
+                 href={`data:text/markdown;charset=utf-8,${encodeURIComponent(result.itinerary)}`}>Download itinerary (.md)</a>
+            </section>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 7: Type-check and build**
+
+Run: `cd web && npx tsc --noEmit -p tsconfig.app.json && npm run build`
+Expected: no type errors; `web/dist/index.html` exists.
+
+- [ ] **Step 8: Live smoke test (needs `.env` with real keys)**
+
+Terminal 1: `.venv/Scripts/python -m uvicorn api:app --reload --port 8000`
+Terminal 2: `cd web && npm run dev`
+Open http://localhost:5173, submit Madrid → Paris. Expected: four tasks go pending → running → done in the task list (a retry shows as a subtask if the first pass overshoots), itinerary renders with a cost table, the plan appears in the sidebar, download link works. Then stop the dev server and confirm http://localhost:8000 serves the built app from `web/dist`.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add web
+git commit -m "Add React frontend with 21st.dev booking form and agent task list
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 6: Dockerfile, README, Hugging Face Spaces deploy
+
+**Files:**
+- Create: `Dockerfile`, `.dockerignore`
+- Create: `README.md`
+
+- [ ] **Step 1: Write `Dockerfile` and `.dockerignore`**
+
+`Dockerfile`:
+```dockerfile
+FROM node:24-slim AS web
+WORKDIR /web
+COPY web/package*.json ./
+RUN npm ci
+COPY web .
+RUN npm run build
+
+FROM python:3.14-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY *.py ./
+COPY --from=web /web/dist ./web/dist
+EXPOSE 7860
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "7860"]
+```
+
+`.dockerignore`:
+```
+.venv
+.env
+plans.db
+web/node_modules
+web/dist
+docs
+test_*.py
+__pycache__
+.git
+```
+
+- [ ] **Step 2: Build and run the container locally**
+
+Run: `docker build -t vacaya . && docker run --rm -p 7860:7860 --env-file .env vacaya`
+Open http://localhost:7860 and run one plan end to end. Expected: same behaviour as the dev setup.
+
+- [ ] **Step 3: Write `README.md`** (the YAML front-matter is required by Hugging Face Spaces)
 
 ````markdown
+---
+title: Vacaya
+emoji: 🧳
+sdk: docker
+app_port: 7860
+---
+
 # Vacaya - multi-agent travel planner
 
 Enter origin, destination, dates, budget (USD/INR) and preferences. Three specialist agents search Amadeus in parallel
@@ -769,12 +1176,12 @@ Enter origin, destination, dates, budget (USD/INR) and preferences. Three specia
 agent overshot with a tighter cap, then a writer agent produces a day-by-day itinerary. Plans are saved to SQLite.
 
 ```
-user request -> orchestrator.plan()
-                  |-- resolve cities (Amadeus Locations)
-                  |-- split budget 40/35/25
-                  |-- asyncio.gather: flight agent | stay agent | activity agent   (OpenAI Agents SDK + Amadeus tools)
-                  |-- validate total; retry worst offender with reduced cap (max 2)
-                  '-- writer agent -> Markdown itinerary -> SQLite -> Streamlit
+React UI (21st.dev components) --EventSource--> FastAPI /api/plan (SSE) --> orchestrator.plan()
+                                                                              |-- resolve cities (Amadeus Locations)
+                                                                              |-- split budget 40/35/25
+                                                                              |-- asyncio.gather: flight | stay | activity agents (OpenAI Agents SDK + Amadeus tools)
+                                                                              |-- validate total; retry worst offender with reduced cap (max 2)
+                                                                              '-- writer agent -> Markdown itinerary -> SQLite
 ```
 
 ## Run locally
@@ -784,19 +1191,22 @@ user request -> orchestrator.plan()
 3. Copy `.env.example` to `.env` and fill in:
    - `OPENAI_API_KEY` from https://platform.openai.com
    - `AMADEUS_CLIENT_ID` / `AMADEUS_CLIENT_SECRET` from https://developers.amadeus.com (Self-Service, free test environment)
-4. `streamlit run app.py`
+4. Backend: `uvicorn api:app --reload --port 8000`
+5. Frontend: `cd web && npm install && npm run dev` then open http://localhost:5173
+
+Or build once and serve everything from FastAPI: `cd web && npm run build`, then http://localhost:8000.
 
 ## Tests
 
-`python -m pytest` - no network; agents and Amadeus are faked.
+`python -m pytest` - no network; agents, Amadeus and the orchestrator are faked.
 
-## Deploy (Streamlit Community Cloud)
+## Deploy (Hugging Face Spaces, Docker)
 
-1. Push to GitHub (public repo).
-2. https://share.streamlit.io -> New app -> pick the repo, branch `master`, file `app.py`.
-3. Advanced settings -> Secrets: paste the three keys in TOML form (`OPENAI_API_KEY = "..."` etc.).
+1. Create a Space at https://huggingface.co/new-space with SDK **Docker**.
+2. Space settings -> Variables and secrets: add `OPENAI_API_KEY`, `AMADEUS_CLIENT_ID`, `AMADEUS_CLIENT_SECRET` as secrets.
+3. `git remote add hf https://huggingface.co/spaces/<user>/vacaya && git push hf master:main`
 
-Plan history lives in a SQLite file on the app's disk, which resets on redeploy.
+Plan history lives in a SQLite file inside the container, which resets on rebuild.
 
 ## Amadeus test environment caveats
 
@@ -805,35 +1215,21 @@ Madrid -> Paris, London -> Barcelona, New York -> San Francisco. If a section re
 test data, not a bug - the agents never invent prices.
 ````
 
-- [ ] **Step 3: Create `.env` from `.env.example` with real keys** (user supplies keys; never commit `.env`)
-
-- [ ] **Step 4: Live smoke test**
-
-Run: `.venv/Scripts/python -m streamlit run app.py --server.headless true`
-Open http://localhost:8501, submit the default Madrid -> Paris form. Expected: four status boxes go running -> complete, an itinerary renders with a cost table, the plan appears in the sidebar after a rerun, download button works. Check the terminal for tracebacks.
-
-If Amadeus returns an error for the default cities, try London -> Barcelona.
-
-- [ ] **Step 5: Commit and push**
+- [ ] **Step 4: Commit and push to GitHub**
 
 ```bash
-git add app.py README.md
-git commit -m "Add Streamlit UI and README
+git add Dockerfile .dockerignore README.md
+git commit -m "Add Dockerfile and README for Hugging Face Spaces
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 git push
 ```
 
----
+- [ ] **Step 5: Deploy to Hugging Face Spaces (user creates the Space and secrets; then push)**
 
-### Task 5: Deploy to Streamlit Community Cloud (user-driven)
-
-No code. The user signs in at https://share.streamlit.io with the GitHub account `arpitdamani`, creates the app from `arpitdamani/vacaya` (`master`, `app.py`), and pastes secrets:
-
-```toml
-OPENAI_API_KEY = "sk-..."
-AMADEUS_CLIENT_ID = "..."
-AMADEUS_CLIENT_SECRET = "..."
+```bash
+git remote add hf https://huggingface.co/spaces/<hf-user>/vacaya
+git push hf master:main
 ```
 
-- [ ] Confirm the deployed URL loads and one plan completes end to end.
+Confirm the Space builds (Logs tab), loads, and one plan completes end to end.
