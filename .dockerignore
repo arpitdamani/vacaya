@@ -1,0 +1,10 @@
+.venv
+.env
+plans.db
+web/node_modules
+web/dist
+docs
+test_*.py
+__pycache__
+.git
+.claude
