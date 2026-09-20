@@ -54,7 +54,7 @@ The orchestrator is deterministic Python, not an LLM. Specialist agents are LLM 
 Each gets: destination code/name, dates, travelers, its budget cap, currency, and the preferences text. Each has `output_type` set to a Pydantic model so the orchestrator can read `total` without parsing prose. Each is instructed to pick the option that best fits the preferences within the cap, explain the pick in `reason`, and return an empty result with `reason="no options found"` rather than invent data.
 
 - **Flight agent** — tool `search_flights(origin, dest, depart, return, adults, max_price, currency)` → up to 5 offers (airline, times, stops, price). Output `FlightPick{airline, depart_at, return_at, stops, price, reason}`.
-- **Stay agent** — tool `search_hotels(city_code, check_in, check_out, adults, currency)` → hotel IDs by city, then offers for the first N (Amadeus limits IDs per call). Output `StayPick{name, area, nightly, total, reason}`.
+- **Stay agent** — tool `search_hotels(city_code, check_in, check_out, adults, currency)` → hotel IDs by city, then offers for the first N (Amadeus limits IDs per call). Output `StayPick{name, room, nightly, total, reason}`.
 - **Activity agent** — tool `search_activities(lat, lon, radius_km)` → activities with name, short description, price+currency. Output `ActivityPlan{items: [{name, price, day_hint}], total, currency, reason}`. Orchestrator converts `total` to the plan currency.
 - **Writer agent** — no tools. Input: request + three results + over-budget flag. Output: markdown with a day-by-day plan (one heading per date), a cost table (flights / stay / activities / total vs budget), and a one-line "why these picks" per section drawn from the `reason` fields.
 
@@ -78,7 +78,7 @@ over_budget = total > budget after loop
 
 ## Error handling
 
-- Amadeus errors and empty responses → tool returns `[]`; agent reports "no options found"; itinerary marks that section unavailable. Prices are never fabricated.
+- Amadeus errors → tool returns `{"error": ...}`, empty results → `[]`; agent reports "no options found"; itinerary marks that section unavailable. Prices are never fabricated.
 - FX fetch failure → activity total left in source currency and flagged in the itinerary rather than guessed.
 - Missing API keys → app shows a clear message on load instead of crashing at first search.
 - Amadeus test env only covers major cities and hotel offers are often empty; README lists known-good demo inputs (e.g. MAD→PAR, NYC→LON).
