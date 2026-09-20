@@ -1,0 +1,7 @@
+openai-agents
+amadeus
+fastapi
+uvicorn
+python-dotenv
+pytest
+httpx

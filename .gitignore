@@ -1,0 +1,7 @@
+.venv/
+.env
+plans.db
+__pycache__/
+.pytest_cache/
+web/node_modules/
+web/dist/
