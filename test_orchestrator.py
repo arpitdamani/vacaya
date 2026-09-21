@@ -44,12 +44,20 @@ def test_over_budget_reruns_worst_offender_with_reduced_cap(monkeypatch):
     assert result.over_budget is False
 
 
-def test_gives_up_after_max_retries(monkeypatch):
+def test_stops_early_when_retry_cannot_do_better(monkeypatch):
     calls = setup(monkeypatch, {"flight": [900, 900, 900], "stay": [300], "activity": [200]})
     events = []
     result = asyncio.run(plan(REQ, on_event=lambda k, s, d: events.append((k, s))))
-    assert len(calls) == 5
-    assert calls[4][1] == 0  # cap clamped at zero, never negative
+    assert len(calls) == 4  # one retry, then stop: same price back means the cap is not the constraint
+    assert calls[3][1] == 0  # cap clamped at zero, never negative
     assert result.over_budget is True
-    assert events.count(("flight", "retry")) == 2
+    assert events.count(("flight", "retry")) == 1
     assert events[-1] == ("writer", "done")
+
+
+def test_gives_up_after_max_retries(monkeypatch):
+    calls = setup(monkeypatch, {"flight": [900, 800, 700], "stay": [300], "activity": [200]})
+    result = asyncio.run(plan(REQ))
+    assert len(calls) == 5  # each retry improved, so both were used
+    assert result.totals["flight"] == 700
+    assert result.over_budget is True

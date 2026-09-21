@@ -74,7 +74,10 @@ async def plan(req: PlanRequest, on_event=None) -> PlanResult:
         worst = max(results, key=lambda k: results[k].total - caps[k])
         caps[worst] = max(caps[worst] - overage, 0)
         on_event(worst, "retry", f"plan over by {overage:.0f} {req.currency}; new cap {caps[worst]:.0f}")
+        before = results[worst].total
         results[worst] = await run(worst)
+        if results[worst].total >= before:  # the market floor, not the cap, is the limit; retrying again won't help
+            break
 
     totals = {k: r.total for k, r in results.items()}
     over_budget = sum(totals.values()) > req.budget

@@ -75,7 +75,7 @@ def _search_flights(origin: str, destination: str, depart: str, return_date: str
 
 
 def _search_hotels(city: str, check_in: str, check_out: str, adults: int, currency: str, max_nightly: int) -> str:
-    """Search hotels on Google Hotels for the whole stay. Returns a JSON list with name, nightly and total price, star class, rating and a short description.
+    """Search hotels on Google Hotels for the whole stay. Returns a JSON list (Google's ranking, filtered to the nightly cap) with name, nightly and total price, star class, rating and a short description.
 
     Args:
         city: destination city name, e.g. Paris
@@ -86,7 +86,7 @@ def _search_hotels(city: str, check_in: str, check_out: str, adults: int, curren
         max_nightly: maximum price per night in `currency` (whole number); derive it from your cap divided by the number of nights
     """
     data = serpapi(engine="google_hotels", q=f"{city} hotels", check_in_date=check_in, check_out_date=check_out,
-                   adults=adults, currency=currency, max_price=max(int(max_nightly), 1), sort_by=3, hl="en", gl="us")
+                   adults=adults, currency=currency, max_price=max(int(max_nightly), 1), hl="en", gl="us")
     if "error" in data:
         return json.dumps({"error": data["error"]})
     out = []
@@ -123,7 +123,7 @@ def _parse_price(text: str | None) -> tuple[float, str] | None:
 
 
 def _search_activities(city: str, currency: str) -> str:
-    """Find top sights and things to do in a city (Google 'top sights'). Returns a JSON list with name, description, rating, price and currency. Prices are converted to `currency` when an exchange rate is available; otherwise the item keeps its original currency. Items without a listed price are omitted.
+    """Find top sights and things to do in a city (Google 'top sights'). Returns a JSON list with name, rating, price and currency. Prices are converted to `currency` when an exchange rate is available; otherwise the item keeps its original currency. Items without a listed price are omitted.
 
     Args:
         city: destination city name, e.g. Paris
@@ -143,7 +143,6 @@ def _search_activities(city: str, currency: str) -> str:
             amount, cur = round(amount * rate, 2), currency
         out.append({
             "name": s.get("title"),
-            "description": (s.get("description") or "")[:160],
             "rating": s.get("rating"),
             "price": amount,
             "currency": cur,

@@ -59,7 +59,7 @@ def test_search_activities_converts_currency_and_skips_unpriced(monkeypatch):
     ]}})
     monkeypatch.setattr(specialists, "fx_rate", lambda s, d: 2.0)
     out = json.loads(_search_activities("Paris", "INR"))
-    assert out == [{"name": "Louvre", "description": "Art", "rating": 4.7, "price": 40.0, "currency": "INR"}]
+    assert out == [{"name": "Louvre", "rating": 4.7, "price": 40.0, "currency": "INR"}]
 
 
 def test_search_activities_keeps_source_currency_when_fx_fails(monkeypatch):
