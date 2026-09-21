@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { History } from "lucide-react";
 import { TripForm } from "@/components/TripForm";
 import { AgentProgress } from "@/components/AgentProgress";
@@ -17,8 +17,11 @@ export default function App() {
   const [saved, setSaved] = useState<SavedPlan[]>([]);
   const [panelOpen, setPanelOpen] = useState(false);
 
+  const mainRef = useRef<HTMLElement>(null);
+
   useEffect(() => {
     listPlans().then(setSaved).catch(() => {});
+    if (phase !== "idle") mainRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [phase]);
 
   function start(t: TripInput) {
@@ -37,11 +40,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="bg-[url('/hero.jpg')] bg-cover bg-center print:hidden">
-        <div className="mx-auto flex min-h-64 max-w-5xl items-start justify-between gap-4 p-4 md:min-h-80 md:p-8">
-          <h1 className="rounded-xl bg-background/85 px-5 py-3 text-3xl font-bold leading-tight shadow-md backdrop-blur-sm">
+      <section className="relative flex min-h-dvh items-center justify-center bg-[url('/hero.jpg')] bg-cover bg-center p-4 py-16 md:p-8 print:hidden">
+        <div className="w-full max-w-2xl rounded-2xl bg-card/95 p-6 shadow-xl backdrop-blur md:p-8">
+          <h1 className="mb-6 text-3xl font-bold leading-tight">
             Vacaya <span className="block text-base font-normal text-muted-foreground sm:inline sm:ml-2">Your Personal Travel Planner</span>
           </h1>
+          <TripForm onSubmit={start} disabled={phase === "running"} />
+        </div>
+        <div className="absolute right-4 top-4 md:right-8 md:top-8">
           <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
             <SheetTrigger render={<Button variant="outline" />}>
               <History /> Past plans{saved.length > 0 && <span className="text-muted-foreground">({saved.length})</span>}
@@ -65,10 +71,9 @@ export default function App() {
             </SheetContent>
           </Sheet>
         </div>
-      </header>
+      </section>
       <div className="mx-auto max-w-5xl p-4 md:p-8">
-        <main className="space-y-6">
-          <div className="-mt-20 print:mt-0 print:hidden md:-mt-28"><TripForm onSubmit={start} disabled={phase === "running"} /></div>
+        <main ref={mainRef} className="space-y-6">
           {(phase === "running" || events.length > 0) && <div className="print:hidden"><AgentProgress events={events} failed={phase === "error"} /></div>}
           {phase === "error" && <p role="alert" className="rounded-md border border-destructive p-3 text-destructive">{error}</p>}
           {plan && (

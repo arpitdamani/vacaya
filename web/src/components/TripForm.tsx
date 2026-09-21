@@ -35,7 +35,7 @@ export function TripForm({ onSubmit, disabled }: { onSubmit: (t: TripInput) => v
   const invalid = t.return_date <= t.depart || !(t.budget > 0) || !t.origin.trim() || !t.destination.trim();
 
   return (
-    <motion.div variants={containerVariants} initial="hidden" animate="visible" className="w-full rounded-2xl bg-card p-6 shadow-lg">
+    <motion.div variants={containerVariants} initial="hidden" animate="visible" className="w-full">
       <form onSubmit={(e) => { e.preventDefault(); if (!invalid) onSubmit(t); }} className="space-y-6">
         <motion.div variants={itemVariants} className="space-y-2">
           <h3 className="font-medium text-card-foreground">Route</h3>
