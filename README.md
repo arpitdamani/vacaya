@@ -62,5 +62,5 @@ every deploy.
   item appears exactly once (dropped items go to the lightest day) so the UI never loses a pick. A budget retry that returns nothing is rejected in favour of the original pick.
 - Nothing is bookable from here.
 - City suggestions (`web/src/lib/cities.json`) are every city with a scheduled-service large/medium airport in the
-  public-domain [OurAirports](https://ourairports.com/data/) dataset, plus a couple of tourist regions (Goa, Bali).
+  public-domain [OurAirports](https://ourairports.com/data/) dataset, plus a few tourist places without their own airport (Goa, Bali, Kyoto).
   Free text is still accepted.

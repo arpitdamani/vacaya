@@ -1,10 +1,13 @@
 // Adapted from "Booking Form" by lavikatiyar — https://21st.dev/@lavikatiyar/components/form
 // (fetched via the 21st.dev MCP connector). Same card, icon-in-field and staggered-motion
 // styling; fields changed from destination/dates/rooms/guests to a full trip request.
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { CalendarDays, MapPin, Plane, Sparkles, Users2, Wallet } from "lucide-react";
+import { Combobox as ComboboxPrimitive } from "@base-ui/react";
 import { Button } from "@/components/ui/button";
+import { Combobox, ComboboxCollection, ComboboxContent, ComboboxEmpty, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { TripInput } from "@/lib/api";
 import cities from "@/lib/cities.json";
@@ -28,6 +31,34 @@ function Field({ icon, label, className, children }: { icon: ReactNode; label: s
 /** Form state: number fields may be empty while the user is still typing. */
 type Draft = Omit<TripInput, "travelers" | "budget"> & { travelers: number | ""; budget: number | "" };
 
+/** Up to 8 cities matching q: city-name prefix matches first (shortest name first, so "Tok" → Tokyo before Tokoname), then any substring match. */
+function suggest(q: string): string[] {
+  q = q.trim().toLowerCase();
+  if (!q) return [];
+  const hits = cities.filter((c) => c.toLowerCase().includes(q));
+  const prefix = hits.filter((c) => c.toLowerCase().startsWith(q)).sort((a, b) => a.indexOf(",") - b.indexOf(","));
+  return [...prefix, ...hits.filter((c) => !prefix.includes(c))].slice(0, 8);
+}
+
+/** Free-text city input with shadcn/base-ui suggestions from the airport-city list. */
+function CityField({ icon, label, placeholder, value, onChange }: { icon: ReactNode; label: string; placeholder: string; value: string; onChange: (v: string) => void }) {
+  const filteredItems = useMemo(() => suggest(value), [value]);
+  return (
+    <Combobox<string> items={cities} filteredItems={filteredItems} openOnInputClick={false} inputValue={value} onInputValueChange={onChange}
+              onValueChange={(v: string | null) => v && onChange(v)}>
+      <Field icon={icon} label={label}>
+        <ComboboxPrimitive.Input className={FIELD} placeholder={placeholder} required />
+      </Field>
+      <ComboboxContent>
+        <ComboboxEmpty>No matching city — any place name works.</ComboboxEmpty>
+        <ComboboxList>
+          <ComboboxCollection>{(c: string) => <ComboboxItem key={c} value={c}>{c}</ComboboxItem>}</ComboboxCollection>
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  );
+}
+
 export function TripForm({ onSubmit, disabled }: { onSubmit: (t: TripInput) => void; disabled: boolean }) {
   const [t, set] = useState<Draft>({ origin: "", destination: "", depart: "", return_date: "", travelers: "", budget: "", currency: "USD", preferences: "" });
   const upd = <K extends keyof Draft>(k: K, v: Draft[K]) => set((s) => ({ ...s, [k]: v }));
@@ -41,14 +72,9 @@ export function TripForm({ onSubmit, disabled }: { onSubmit: (t: TripInput) => v
         <motion.div variants={itemVariants} className="space-y-2">
           <h3 className="font-medium text-card-foreground">Route</h3>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Field icon={<Plane />} label="From">
-              <input className={FIELD} value={t.origin} onChange={(e) => upd("origin", e.target.value)} placeholder="Departure city" list="cities" required />
-            </Field>
-            <Field icon={<MapPin />} label="To">
-              <input className={FIELD} value={t.destination} onChange={(e) => upd("destination", e.target.value)} placeholder="Arrival destination" list="cities" required />
-            </Field>
+            <CityField icon={<Plane />} label="From" placeholder="Departure city" value={t.origin} onChange={(v) => upd("origin", v)} />
+            <CityField icon={<MapPin />} label="To" placeholder="Arrival destination" value={t.destination} onChange={(v) => upd("destination", v)} />
           </div>
-          <datalist id="cities">{cities.map((c) => <option key={c} value={c} />)}</datalist>
         </motion.div>
 
         <motion.div variants={itemVariants} className="space-y-2">
@@ -60,7 +86,7 @@ export function TripForm({ onSubmit, disabled }: { onSubmit: (t: TripInput) => v
             <Field icon={<CalendarDays />} label="Return">
               <input type="date" className={FIELD} value={t.return_date} min={t.depart} onChange={(e) => upd("return_date", e.target.value)} placeholder="Return date" data-empty={!t.return_date || undefined} required />
             </Field>
-            <Field icon={<Users2 />} label="Travelers" className="sm:max-w-32">
+            <Field icon={<Users2 />} label="Travelers" className="sm:max-w-40">
               <input type="number" min={1} max={9} className={FIELD} value={t.travelers} onChange={(e) => upd("travelers", num(e.target.value))} placeholder="No. of pax" required />
             </Field>
           </div>
@@ -73,15 +99,15 @@ export function TripForm({ onSubmit, disabled }: { onSubmit: (t: TripInput) => v
             <Field icon={<Wallet />} label="Total budget">
               <input type="number" min={1} step="any" className={FIELD} value={t.budget} onChange={(e) => upd("budget", num(e.target.value))} placeholder="Total budget" required />
             </Field>
-            <select
-              aria-label="Currency"
-              className="h-12 rounded-xl border border-input bg-transparent px-4 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              value={t.currency}
-              onChange={(e) => upd("currency", e.target.value as TripInput["currency"])}
-            >
-              <option value="USD">USD</option>
-              <option value="INR">INR</option>
-            </select>
+            <Select value={t.currency} onValueChange={(v) => upd("currency", v as TripInput["currency"])}>
+              <SelectTrigger aria-label="Currency" className="h-12 rounded-xl px-4 text-base data-[size=default]:h-12">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="USD">USD</SelectItem>
+                <SelectItem value="INR">INR</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </motion.div>
 
