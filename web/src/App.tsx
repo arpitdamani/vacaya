@@ -47,9 +47,9 @@ export default function App() {
             <h1 className="font-heading text-5xl leading-none">
               Vacaya <span className="mt-1 block font-sans text-base leading-tight text-muted-foreground sm:mt-0 sm:inline sm:ml-2">Your Personal Travel Planner</span>
             </h1>
-            <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
+            {saved.length > 0 && <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
               <SheetTrigger render={<Button variant="outline" aria-label="Past plans" />}>
-                <History /> <span className="hidden sm:inline">Past plans</span>{saved.length > 0 && <span className="text-muted-foreground">({saved.length})</span>}
+                <History /> <span className="hidden sm:inline">Past plans</span><span className="text-muted-foreground">({saved.length})</span>
               </SheetTrigger>
               <SheetContent side="left">
                 <SheetHeader>
@@ -68,7 +68,7 @@ export default function App() {
                   ))}
                 </ul>
               </SheetContent>
-            </Sheet>
+            </Sheet>}
           </div>
           <TripForm onSubmit={start} disabled={phase === "running"} />
         </div>

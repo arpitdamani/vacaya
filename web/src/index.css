@@ -151,3 +151,13 @@
     background: transparent;
     }
 }
+
+/* Empty date inputs show their placeholder instead of dd-mm-yyyy (Chromium/WebKit; Firefox keeps its native mask). */
+input[type="date"] { position: relative; }
+input[type="date"][data-empty]:not(:focus)::-webkit-datetime-edit { color: transparent; }
+input[type="date"][data-empty]:not(:focus)::before {
+  content: attr(placeholder);
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  padding-left: inherit;
+  color: var(--muted-foreground);
+}

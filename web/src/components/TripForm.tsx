@@ -9,8 +9,6 @@ import { cn } from "@/lib/utils";
 import type { TripInput } from "@/lib/api";
 import cities from "@/lib/cities.json";
 
-const plusDays = (n: number) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
-
 const containerVariants = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { staggerChildren: 0.1 } } };
 const itemVariants = { hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } };
 
@@ -27,25 +25,27 @@ function Field({ icon, label, className, children }: { icon: ReactNode; label: s
   );
 }
 
+/** Form state: number fields may be empty while the user is still typing. */
+type Draft = Omit<TripInput, "travelers" | "budget"> & { travelers: number | ""; budget: number | "" };
+
 export function TripForm({ onSubmit, disabled }: { onSubmit: (t: TripInput) => void; disabled: boolean }) {
-  const [t, set] = useState<TripInput>({
-    origin: "Madrid", destination: "Paris", depart: plusDays(30), return_date: plusDays(34),
-    travelers: 1, budget: 2000, currency: "USD", preferences: "",
-  });
-  const upd = <K extends keyof TripInput>(k: K, v: TripInput[K]) => set((s) => ({ ...s, [k]: v }));
-  const invalid = t.return_date <= t.depart || !(t.budget > 0) || !t.origin.trim() || !t.destination.trim();
+  const [t, set] = useState<Draft>({ origin: "", destination: "", depart: "", return_date: "", travelers: "", budget: "", currency: "USD", preferences: "" });
+  const upd = <K extends keyof Draft>(k: K, v: Draft[K]) => set((s) => ({ ...s, [k]: v }));
+  const num = (v: string) => (v === "" ? "" : Number(v));
+  const datesReversed = !!t.depart && !!t.return_date && t.return_date <= t.depart;
+  const invalid = !t.origin.trim() || !t.destination.trim() || !t.depart || !t.return_date || datesReversed || !(Number(t.travelers) >= 1) || !(Number(t.budget) > 0);
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="w-full">
-      <form onSubmit={(e) => { e.preventDefault(); if (!invalid) onSubmit(t); }} className="space-y-6">
+      <form onSubmit={(e) => { e.preventDefault(); if (!invalid) onSubmit({ ...t, travelers: Number(t.travelers), budget: Number(t.budget) }); }} className="space-y-6">
         <motion.div variants={itemVariants} className="space-y-2">
           <h3 className="font-medium text-card-foreground">Route</h3>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Field icon={<Plane />} label="From">
-              <input className={FIELD} value={t.origin} onChange={(e) => upd("origin", e.target.value)} placeholder="From: Madrid" list="cities" required />
+              <input className={FIELD} value={t.origin} onChange={(e) => upd("origin", e.target.value)} placeholder="Departure city" list="cities" required />
             </Field>
             <Field icon={<MapPin />} label="To">
-              <input className={FIELD} value={t.destination} onChange={(e) => upd("destination", e.target.value)} placeholder="To: Paris" list="cities" required />
+              <input className={FIELD} value={t.destination} onChange={(e) => upd("destination", e.target.value)} placeholder="Arrival destination" list="cities" required />
             </Field>
           </div>
           <datalist id="cities">{cities.map((c) => <option key={c} value={c} />)}</datalist>
@@ -55,23 +55,23 @@ export function TripForm({ onSubmit, disabled }: { onSubmit: (t: TripInput) => v
           <h3 className="font-medium text-card-foreground">Dates &amp; travelers</h3>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Field icon={<CalendarDays />} label="Depart">
-              <input type="date" className={FIELD} value={t.depart} onChange={(e) => upd("depart", e.target.value)} required />
+              <input type="date" className={FIELD} value={t.depart} onChange={(e) => upd("depart", e.target.value)} placeholder="Departure date" data-empty={!t.depart || undefined} required />
             </Field>
             <Field icon={<CalendarDays />} label="Return">
-              <input type="date" className={FIELD} value={t.return_date} min={t.depart} onChange={(e) => upd("return_date", e.target.value)} required />
+              <input type="date" className={FIELD} value={t.return_date} min={t.depart} onChange={(e) => upd("return_date", e.target.value)} placeholder="Return date" data-empty={!t.return_date || undefined} required />
             </Field>
             <Field icon={<Users2 />} label="Travelers" className="sm:max-w-32">
-              <input type="number" min={1} max={9} className={FIELD} value={t.travelers} onChange={(e) => upd("travelers", Number(e.target.value))} required />
+              <input type="number" min={1} max={9} className={FIELD} value={t.travelers} onChange={(e) => upd("travelers", num(e.target.value))} placeholder="No. of pax" required />
             </Field>
           </div>
-          {t.return_date <= t.depart && <p className="text-sm text-destructive">Return must be after departure.</p>}
+          {datesReversed && <p className="text-sm text-destructive">Return must be after departure.</p>}
         </motion.div>
 
         <motion.div variants={itemVariants} className="space-y-2">
           <h3 className="font-medium text-card-foreground">Budget</h3>
           <div className="flex gap-2">
             <Field icon={<Wallet />} label="Total budget">
-              <input type="number" min={1} step="any" className={FIELD} value={t.budget} onChange={(e) => upd("budget", Number(e.target.value))} required />
+              <input type="number" min={1} step="any" className={FIELD} value={t.budget} onChange={(e) => upd("budget", num(e.target.value))} placeholder="Total budget" required />
             </Field>
             <select
               aria-label="Currency"
