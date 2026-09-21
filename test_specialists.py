@@ -56,12 +56,12 @@ def test_parse_price():
 
 def test_search_sights_converts_currency_and_skips_unpriced(monkeypatch):
     fake_serpapi(monkeypatch, {"top_sights": {"sights": [
-        {"title": "Louvre", "rating": 4.7, "reviews": 90000, "price": "$20", "thumbnail": "http://img/l.jpg"},
+        {"title": "Louvre", "rating": 4.7, "reviews": 90000, "price": "$20", "thumbnail": "http://img/l.jpg", "link": "http://g/louvre"},
         {"title": "Seine walk"},
     ]}})
     monkeypatch.setattr(specialists, "fx_rate", lambda s, d: 2.0)
     out = json.loads(_search_sights("Paris", "INR"))
-    assert out == [{"name": "Louvre", "rating": 4.7, "reviews": 90000, "price": 40.0, "currency": "INR", "image": "http://img/l.jpg"}]
+    assert out == [{"name": "Louvre", "rating": 4.7, "reviews": 90000, "price": 40.0, "currency": "INR", "image": "http://img/l.jpg", "link": "http://g/louvre"}]
 
 
 def test_search_sights_keeps_source_currency_when_fx_fails(monkeypatch):
@@ -74,13 +74,14 @@ def test_search_sights_keeps_source_currency_when_fx_fails(monkeypatch):
 def test_search_places_reshapes_maps_results(monkeypatch):
     calls = fake_serpapi(monkeypatch, {"local_results": [
         {"title": "Prince of Sal Water Sports", "type": "Water sports equipment rental service", "rating": "4.8", "reviews": "687",
-         "address": "Mobor, Goa", "open_state": "Open", "thumbnail": "http://img/p.jpg"},
+         "address": "Mobor, Goa", "open_state": "Open", "thumbnail": "http://img/p.jpg", "place_id": "ChIJabc"},
         {"rating": "4.0"},
     ]})
     out = json.loads(_search_places("parasailing and jet ski", "Goa"))
     assert calls[0]["engine"] == "google_maps" and calls[0]["q"] == "parasailing and jet ski in Goa"
     assert out == [{"name": "Prince of Sal Water Sports", "category": "Water sports equipment rental service", "rating": "4.8",
-                    "reviews": "687", "address": "Mobor, Goa", "open": "Open", "image": "http://img/p.jpg"}]
+                    "reviews": "687", "address": "Mobor, Goa", "open": "Open", "image": "http://img/p.jpg",
+                    "link": "https://www.google.com/maps/place/?q=place_id:ChIJabc"}]
 
 
 def test_tools_have_expected_names():

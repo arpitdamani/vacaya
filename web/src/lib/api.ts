@@ -4,7 +4,24 @@ export type TripInput = {
 };
 export type AgentKind = "flight" | "stay" | "activity" | "writer";
 export type ProgressEvent = { kind: AgentKind; status: "start" | "done" | "retry"; detail: string };
-export type PlanDone = { kind: "plan"; status: "done"; id: number; itinerary: string; totals: Record<string, number>; over_budget: boolean };
+
+export type FlightPick = { airline: string; depart_at: string; return_at: string; stops: number; total: number; image: string; reason: string };
+export type StayPick = { name: string; description: string; stars: string; rating: number; nightly: number; total: number; image: string; reason: string };
+export type ItemKind = "sight" | "experience" | "food" | "nightlife" | "shopping";
+export type ActivityItem = {
+  name: string; kind: ItemKind; description: string; price: number; estimated: boolean; rating: number;
+  image: string; link: string; day: number; time_of_day: "morning" | "afternoon" | "evening";
+};
+export type ActivityPlan = { items: ActivityItem[]; total: number; estimated_total: number; currency: string; reason: string };
+export type Slot = { time_of_day: "morning" | "afternoon" | "evening"; notes: string[]; items: number[] };
+export type Day = { day: number; date: string; title: string; slots: Slot[] };
+export type Itinerary = { title: string; overview: string; estimate_note: string; days: Day[] };
+export type Plan = {
+  request: TripInput; totals: Record<string, number>; caps: Record<string, number>; over_budget: boolean;
+  flight: FlightPick; stay: StayPick; activity: ActivityPlan; itinerary: Itinerary;
+};
+
+export type PlanDone = { kind: "plan"; status: "done"; id: number; plan: Plan };
 export type PlanError = { kind: "plan"; status: "error"; detail: string };
 export type SseEvent = ProgressEvent | PlanDone | PlanError;
 export type SavedPlan = { id: number; created_at: string; title: string; total: number; currency: string };
@@ -31,4 +48,4 @@ export function streamPlan(input: TripInput, onEvent: (e: SseEvent) => void, onF
 }
 
 export const listPlans = () => fetch("/api/plans").then((r) => r.json() as Promise<SavedPlan[]>);
-export const loadPlan = (id: number) => fetch(`/api/plans/${id}`).then((r) => r.json() as Promise<{ itinerary: string }>);
+export const loadPlan = (id: number) => fetch(`/api/plans/${id}`).then((r) => r.json() as Promise<{ plan: Plan }>);

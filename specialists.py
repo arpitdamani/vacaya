@@ -154,12 +154,13 @@ def _search_sights(city: str, currency: str) -> str:
             "price": amount,
             "currency": cur,
             "image": s.get("thumbnail") or "",
+            "link": s.get("link") or "",
         })
     return json.dumps(out[:40])
 
 
 def _search_places(query: str, city: str) -> str:
-    """Google Maps search for experiences, tours, water sports, classes, restaurants, cafes, bars and nightclubs. Returns a JSON list with name, category, rating, review count, address, opening status and a photo URL. Google Maps does not list prices, so estimate typical per-person prices yourself and flag them as estimates.
+    """Google Maps search for experiences, tours, water sports, classes, restaurants, cafes, bars, nightclubs, markets and shops. Returns a JSON list with name, category, rating, review count, address, opening status, a photo URL and a Google Maps link. Google Maps does not list prices, so estimate typical per-person prices yourself and flag them as estimates.
 
     Args:
         query: what to look for, specific and preference-driven, e.g. "parasailing and jet ski", "vegetarian restaurants", "nightclubs", "cooking class", "rooftop bars"
@@ -180,6 +181,7 @@ def _search_places(query: str, city: str) -> str:
             "address": r.get("address"),
             "open": r.get("open_state"),
             "image": r.get("thumbnail") or "",
+            "link": f"https://www.google.com/maps/place/?q=place_id:{r['place_id']}" if r.get("place_id") else (r.get("website") or ""),
         })
     return json.dumps(out[:12])
 
@@ -215,12 +217,13 @@ class StayPick(BaseModel):
 
 class ActivityItem(BaseModel):
     name: str
-    kind: Literal["sight", "experience", "food", "nightlife"]
+    kind: Literal["sight", "experience", "food", "nightlife", "shopping"]
     description: str  # 1-2 concrete sentences: what the traveler will do or see and why it fits their preferences
     price: float  # total for all travelers in the plan currency; 0 if free
     estimated: bool  # True when no listed price existed and this is a typical-price estimate
     rating: float  # 0 if unknown
     image: str  # photo URL or ""
+    link: str  # Google Maps / Google page URL from the tool result, or ""
     day: int  # 1-based day of the trip
     time_of_day: Literal["morning", "afternoon", "evening"]
 
@@ -233,6 +236,26 @@ class ActivityPlan(BaseModel):
     reason: str
 
 
+class Slot(BaseModel):
+    time_of_day: Literal["morning", "afternoon", "evening"]
+    notes: list[str]  # 1-3 short bullets in the traveler's voice: what to do in this slot
+    items: list[int]  # indexes into the experience items list, each used exactly once across the whole itinerary
+
+
+class Day(BaseModel):
+    day: int  # 1-based
+    date: str  # YYYY-MM-DD
+    title: str  # short label, e.g. "Arrival & Candolim sunset"
+    slots: list[Slot]
+
+
+class Itinerary(BaseModel):
+    title: str
+    overview: str  # 2-3 sentences; starts with "Over budget by <amount>." when the plan is over budget
+    estimate_note: str  # "" or "~<amount> of the experiences figure is a typical-price estimate, not a quote."
+    days: list[Day]
+
+
 # ---------- agents ----------
 
 _COMMON = """You are one specialist in a team planning a trip. You receive the trip details, the traveler's preferences and a budget cap for your part.
@@ -242,7 +265,7 @@ Write `reason` as one or two sentences addressed to the traveler explaining why 
 
 flight_agent = Agent(
     name="Flight agent",
-    instructions=_COMMON + "You handle round-trip flights. Convert the city names to the main IATA airport codes yourself (e.g. Madrid -> MAD, Paris -> CDG, London -> LHR, Mumbai -> BOM, Goa -> GOI, New York -> JFK). `airline` is the carrier name(s); `depart_at` is the outbound departure time; `return_at` is the return date (Google pairs the cheapest return leg); `image` is the airline_logo from the tool result.",
+    instructions=_COMMON + "You handle round-trip flights. All else similar, prefer an outbound that lands by mid-afternoon on day 1 and a return that leaves after mid-morning on the last day, so both days are usable; if you take a cheaper red-eye instead, say what it costs in usable time in `reason`. Convert the city names to the main IATA airport codes yourself (e.g. Madrid -> MAD, Paris -> CDG, London -> LHR, Mumbai -> BOM, Goa -> GOI, New York -> JFK). `airline` is the carrier name(s); `depart_at` is the outbound departure time; `return_at` is the return date (Google pairs the cheapest return leg); `image` is the airline_logo from the tool result.",
     tools=[search_flights],
     output_type=FlightPick,
     model=MODEL,
@@ -260,9 +283,9 @@ activity_agent = Agent(
     name="Experience agent",
     instructions="""You are one specialist in a team planning a trip: you plan what the traveler does, eats and where they go out, day by day. You receive the trip details, the traveler's preferences and a budget cap for everything you pick.
 Research first: call `search_sights` once, then call `search_places` 2 to 4 times with specific queries driven by the preferences and the destination - e.g. "parasailing and jet ski" or "kayaking tours" for beach destinations, "vegetarian restaurants" or "seafood restaurants" for food preferences, "nightclubs" or "beach clubs" or "rooftop bars" when nightlife is wanted, "cooking class", "museums", "walking tours" as fits. Do not repeat the same query.
-Then build the plan: every day of the trip except the departure day must have 1-2 sights or experiences (morning/afternoon) and 1 dinner spot (evening) - never leave a day empty; add nightlife on 1-2 evenings if the preferences ask for it. Vary the days and neighbourhoods. `day` is 1-based; the departure day gets at most one light morning item.
+Then build the plan: every day of the trip except the departure day must have 2-3 sights, experiences or shopping stops (spread over morning/afternoon) and 1-2 food stops (a cafe or lunch spot plus dinner) - never leave a day empty; add nightlife on 1-2 evenings if the preferences ask for it. Vary the days and neighbourhoods. `day` is 1-based; the departure day gets at most one light morning item.
 Prices: use a listed price from `search_sights` when there is one (estimated=false). Google Maps has no prices, so for experiences, meals and nightlife give a typical total price for all travelers in the plan currency and set estimated=true - be realistic for the destination. Never present an estimate as a quote. Keep `total` (listed + estimated) within the cap; `estimated_total` is the estimated part.
-`description`: 1-2 concrete sentences on what the traveler will actually do or see there and why it fits their preferences. `rating` and `image` come from the tool results (0 / "" if absent).
+`description`: 1-2 concrete sentences on what the traveler will actually do or see there and why it fits their preferences. `rating`, `image` and `link` come from the tool results (0 / "" if absent) - always copy `link` so the traveler can open the place on Google. Use kind "shopping" for markets and shopping streets.
 If a tool errors or returns nothing, say so in `reason` and do not invent places. `reason`: two sentences addressed to the traveler on how the mix matches their preferences and budget.""",
     tools=[search_sights, search_places],
     output_type=ActivityPlan,
@@ -271,13 +294,14 @@ If a tool errors or returns nothing, say so in `reason` and do not invent places
 
 writer_agent = Agent(
     name="Itinerary writer",
-    instructions="""You write the final travel itinerary in Markdown from the specialists' picks (given as JSON). Use every item you are given; do not add places that are not in the picks. Structure:
-1. `# <catchy title>` then a 2-3 sentence overview in the traveler's terms.
-2. `## Cost` table with rows Flights, Stay, Experiences & dining, Total, Budget, Difference, in the given currency. If part of the experiences total is estimated, add a one-line note under the table: "~X of the experiences figure is a typical-price estimate, not a quote."
-3. `## Getting there` - the flight: airline logo as `![airline](image)` if an image is given, airline, outbound time, stops, return date, price.
-4. `## Where you're staying` - the hotel photo as `![name](image)` if given, then name, stars, rating, nightly and total price, and the description.
-5. One section per day: `## Day N - <weekday, date>`. Inside, `### Morning`, `### Afternoon`, `### Evening` as needed. Each item: the photo on its own line as `![name](image)` when an image is given, then `**Name** · <kind> · ★<rating> · <price or "~price est." or "free">` and the description on the next line. Put the outbound flight and hotel check-in on day 1 and check-out plus the return flight on the last day.
-6. `## Why these picks` - quote each specialist's reason.
-Rules: prices only from the picks; mark estimates with "~" and "est."; if a specialist reports no options, say so plainly. If the plan is over budget, say so in the first line with the amount.""",
+    instructions="""You turn the specialists' picks into a day-by-day itinerary structure. You receive the trip details, the flight and hotel picks, and a numbered list of experience items (each already assigned a day and time of day).
+Rules:
+- One Day per trip date, day 1 = departure date through the return date. `date` is YYYY-MM-DD.
+- Slots: only morning/afternoon/evening slots that have content. Every experience item index appears exactly once in the whole itinerary. Default to each item's assigned day and time_of_day, but you own the timing: nothing may be scheduled before the outbound flight lands on day 1 (a late-evening departure means day 1 has only the flight, so move those items to other days) and nothing after check-out and the airport run on the last day. Never invent indexes.
+- `notes`: 1-3 short bullets per slot in the traveler's voice saying what to do, naming the places (e.g. "Take a relaxed seaside walk at Marine Drive and enjoy the skyline."). Day 1 notes cover the outbound flight time and hotel check-in; the last day covers check-out and the return flight. Keep it concrete; no marketing fluff.
+- `title`: catchy, destination-specific. `overview`: 2-3 sentences; if the plan is over budget, start with "Over budget by <amount> <currency>."
+- `estimate_note`: when the experience plan's estimated_total > 0 write "~<amount> <currency> of the experiences figure is a typical-price estimate, not a quote.", else "".
+- If a specialist reported no options, say so in the overview. Prices and places come only from the picks.""",
+    output_type=Itinerary,
     model=MODEL,
 )

@@ -11,7 +11,7 @@ def fake_plan(events):
     async def plan(req, on_event):
         for kind, status, detail in events:
             on_event(kind, status, detail)
-        return PlanResult("# itinerary", {"flight": 400.0, "stay": 300.0, "activity": 200.0}, {}, False)
+        return PlanResult({"itinerary": {"title": "t"}, "over_budget": False}, {"flight": 400.0, "stay": 300.0, "activity": 200.0}, {}, False)
     return plan
 
 
@@ -41,11 +41,11 @@ def test_plan_streams_events_then_result_and_saves(monkeypatch, tmp_path):
     assert events[0] == {"kind": "flight", "status": "start", "detail": "cap 400 USD"}
     assert events[1] == {"kind": "flight", "status": "done", "detail": "380 USD"}
     assert events[2]["kind"] == "plan" and events[2]["status"] == "done"
-    assert events[2]["itinerary"] == "# itinerary" and events[2]["over_budget"] is False
+    assert events[2]["plan"] == {"itinerary": {"title": "t"}, "over_budget": False}
 
     plans = client.get("/api/plans").json()
     assert len(plans) == 1 and plans[0]["title"] == "Madrid → Paris 2026-10-10" and plans[0]["total"] == 900.0
-    assert client.get(f"/api/plans/{plans[0]['id']}").json() == {"itinerary": "# itinerary"}
+    assert client.get(f"/api/plans/{plans[0]['id']}").json() == {"plan": {"itinerary": {"title": "t"}, "over_budget": False}}
 
 
 def test_plan_error_is_streamed_not_raised(monkeypatch, tmp_path):

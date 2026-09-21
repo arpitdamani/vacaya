@@ -28,7 +28,7 @@ def list_plans():
 
 @app.get("/api/plans/{plan_id}")
 def get_plan(plan_id: int):
-    return {"itinerary": db.load(plan_id)}
+    return {"plan": json.loads(db.load(plan_id))}
 
 
 @app.get("/api/plan")
@@ -55,9 +55,8 @@ async def stream_plan(
         try:
             result = await plan(req, lambda kind, status, detail: queue.put_nowait({"kind": kind, "status": status, "detail": detail}))
             total = sum(result.totals.values())
-            pid = db.save(f"{origin} → {destination} {depart}", asdict(req), result.itinerary_md, total, currency)
-            queue.put_nowait({"kind": "plan", "status": "done", "id": pid, "itinerary": result.itinerary_md,
-                              "totals": result.totals, "over_budget": result.over_budget})
+            pid = db.save(f"{origin} → {destination} {depart}", asdict(req), json.dumps(result.plan), total, currency)
+            queue.put_nowait({"kind": "plan", "status": "done", "id": pid, "plan": result.plan})
         except Exception as e:  # surfaced to the client as the terminal event
             queue.put_nowait({"kind": "plan", "status": "error", "detail": str(e)})
 

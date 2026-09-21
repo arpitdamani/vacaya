@@ -6,10 +6,10 @@ agent overshot with a tighter cap, then a writer agent produces a day-by-day iti
 
 ```
 React UI (21st.dev components) --EventSource--> FastAPI /api/plan (SSE) --> orchestrator.plan()
-                                                                              |-- split budget 40/35/25
+                                                                              |-- split budget 35/30/35
                                                                               |-- asyncio.gather: flight | stay | activity agents (OpenAI Agents SDK + SerpApi tools)
                                                                               |-- validate total; retry worst offender with reduced cap (max 2)
-                                                                              '-- writer agent -> Markdown itinerary -> SQLite
+                                                                              '-- writer agent -> structured itinerary (days / slots / item refs) -> SQLite
 ```
 
 | File | Role |
@@ -18,7 +18,7 @@ React UI (21st.dev components) --EventSource--> FastAPI /api/plan (SSE) --> orch
 | `orchestrator.py` | Budget split, parallel run, validation/retry loop, itinerary prompt |
 | `api.py` | FastAPI: SSE progress stream, plan history routes, serves `web/dist` |
 | `db.py` | SQLite plan history |
-| `web/` | Vite + React + Tailwind + shadcn; Booking Form and AI Task List from 21st.dev |
+| `web/` | Vite + React + Tailwind + shadcn; Booking Form and AI Task List from 21st.dev; `Itinerary.tsx` renders day → slot → note bullets + place cards (photo, kind · ★rating · price, links to Google Maps) |
 
 ## Run locally
 
@@ -55,4 +55,6 @@ every deploy.
   no prices, so the experience agent gives a typical price and the itinerary marks it `~... est.` with a note under the
   cost table. Listed prices are never invented; estimates are never presented as quotes.
 - Photos are Google/SerpApi CDN thumbnails; the page sends no referrer so they load, and any that 404 are hidden.
+- The writer agent assigns items to days/slots and must respect flight times; `orchestrator.reconcile()` then guarantees every
+  item appears exactly once (dropped items go to the lightest day) so the UI never loses a pick.
 - Nothing is bookable from here.
