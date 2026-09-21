@@ -10,6 +10,11 @@
 
 ## Global Constraints
 
+> **Amendment (2026-09-21, after Task 6):** Amadeus Self-Service was decommissioned on 2026-07-17, so Task 1's tools were
+> replaced by SerpApi (`google_flights`, `google_hotels`, `google` → `top_sights`) and city resolution was removed from the
+> orchestrator. Secrets are now `OPENAI_API_KEY` and `SERPAPI_API_KEY`. The code and spec are the source of truth; the
+> Amadeus snippets below are historical.
+
 - Module for agents is `specialists.py`, never `agents.py` (collides with the SDK package).
 - Every specialist output model has a `total: float` field — the orchestrator's budget math depends on it.
 - Tools return JSON strings; on Amadeus error they return `{"error": "..."}`; never fabricated data.
