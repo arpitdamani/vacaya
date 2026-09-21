@@ -69,7 +69,17 @@ export default function App() {
                 </p>
               )}
               <article className="prose prose-neutral max-w-none dark:prose-invert">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.itinerary}</ReactMarkdown>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    // photos come from Google/SerpApi CDNs and occasionally 400; hide rather than show alt text
+                    img: ({ src, alt }) => (
+                      <img src={src} alt={alt ?? ""} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                    ),
+                  }}
+                >
+                  {result.itinerary}
+                </ReactMarkdown>
               </article>
               <a className="inline-block text-sm underline" download="itinerary.md"
                  href={`data:text/markdown;charset=utf-8,${encodeURIComponent(result.itinerary)}`}>Download itinerary (.md)</a>

@@ -1,7 +1,7 @@
 import json
 
 import specialists
-from specialists import _parse_price, _search_activities, _search_flights, _search_hotels
+from specialists import _parse_price, _search_flights, _search_hotels, _search_places, _search_sights
 
 
 def fake_serpapi(monkeypatch, response):
@@ -21,9 +21,9 @@ def test_search_flights_reshapes_offer(monkeypatch):
     assert calls[0]["departure_id"] == "MAD" and calls[0]["adults"] == 2 and calls[0]["type"] == 1
     assert out == [
         {"total": 123.0, "currency": "USD", "airlines": ["Air France", "Iberia"], "depart_at": "2026-10-10 08:00",
-         "arrive_at": "2026-10-10 13:00", "stops": 1, "duration_min": 300},
+         "arrive_at": "2026-10-10 13:00", "stops": 1, "duration_min": 300, "airline_logo": ""},
         {"total": 99.0, "currency": "USD", "airlines": ["Vueling"], "depart_at": "2026-10-10 18:00",
-         "arrive_at": "2026-10-10 20:10", "stops": 0, "duration_min": 130},
+         "arrive_at": "2026-10-10 20:10", "stops": 0, "duration_min": 130, "airline_logo": ""},
     ]
 
 
@@ -35,13 +35,15 @@ def test_search_flights_passes_api_error_through(monkeypatch):
 def test_search_hotels_reshapes_and_skips_unpriced(monkeypatch):
     calls = fake_serpapi(monkeypatch, {"properties": [
         {"name": "Hotel A", "total_rate": {"extracted_lowest": 400}, "rate_per_night": {"extracted_lowest": 100},
-         "hotel_class": "4-star hotel", "overall_rating": 4.4, "description": "Near the Louvre"},
+         "hotel_class": "4-star hotel", "overall_rating": 4.4, "reviews": 120, "description": "Near the Louvre",
+         "amenities": ["Wi-Fi", "Pool"], "nearby_places": [{"name": "Louvre"}], "images": [{"thumbnail": "http://img/a.jpg"}]},
         {"name": "Sold out", "total_rate": {}},
     ]})
     out = json.loads(_search_hotels("Paris", "2026-10-10", "2026-10-14", 1, "USD", 120))
     assert calls[0]["q"] == "Paris hotels" and calls[0]["max_price"] == 120 and calls[0]["currency"] == "USD"
     assert out == [{"name": "Hotel A", "total": 400.0, "nightly": 100, "currency": "USD", "stars": "4-star hotel",
-                    "rating": 4.4, "description": "Near the Louvre"}]
+                    "rating": 4.4, "reviews": 120, "description": "Near the Louvre", "amenities": ["Wi-Fi", "Pool"],
+                    "nearby": ["Louvre"], "image": "http://img/a.jpg"}]
 
 
 def test_parse_price():
@@ -52,24 +54,37 @@ def test_parse_price():
     assert _parse_price("Varies") is None
 
 
-def test_search_activities_converts_currency_and_skips_unpriced(monkeypatch):
+def test_search_sights_converts_currency_and_skips_unpriced(monkeypatch):
     fake_serpapi(monkeypatch, {"top_sights": {"sights": [
-        {"title": "Louvre", "description": "Art", "rating": 4.7, "price": "$20"},
+        {"title": "Louvre", "rating": 4.7, "reviews": 90000, "price": "$20", "thumbnail": "http://img/l.jpg"},
         {"title": "Seine walk"},
     ]}})
     monkeypatch.setattr(specialists, "fx_rate", lambda s, d: 2.0)
-    out = json.loads(_search_activities("Paris", "INR"))
-    assert out == [{"name": "Louvre", "rating": 4.7, "price": 40.0, "currency": "INR"}]
+    out = json.loads(_search_sights("Paris", "INR"))
+    assert out == [{"name": "Louvre", "rating": 4.7, "reviews": 90000, "price": 40.0, "currency": "INR", "image": "http://img/l.jpg"}]
 
 
-def test_search_activities_keeps_source_currency_when_fx_fails(monkeypatch):
+def test_search_sights_keeps_source_currency_when_fx_fails(monkeypatch):
     fake_serpapi(monkeypatch, {"top_sights": {"sights": [{"title": "X", "price": "€5"}]}})
     monkeypatch.setattr(specialists, "fx_rate", lambda s, d: None)
-    out = json.loads(_search_activities("Paris", "INR"))
+    out = json.loads(_search_sights("Paris", "INR"))
     assert out[0]["price"] == 5.0 and out[0]["currency"] == "EUR"
+
+
+def test_search_places_reshapes_maps_results(monkeypatch):
+    calls = fake_serpapi(monkeypatch, {"local_results": [
+        {"title": "Prince of Sal Water Sports", "type": "Water sports equipment rental service", "rating": "4.8", "reviews": "687",
+         "address": "Mobor, Goa", "open_state": "Open", "thumbnail": "http://img/p.jpg"},
+        {"rating": "4.0"},
+    ]})
+    out = json.loads(_search_places("parasailing and jet ski", "Goa"))
+    assert calls[0]["engine"] == "google_maps" and calls[0]["q"] == "parasailing and jet ski in Goa"
+    assert out == [{"name": "Prince of Sal Water Sports", "category": "Water sports equipment rental service", "rating": "4.8",
+                    "reviews": "687", "address": "Mobor, Goa", "open": "Open", "image": "http://img/p.jpg"}]
 
 
 def test_tools_have_expected_names():
     assert specialists.search_flights.name == "search_flights"
     assert specialists.search_hotels.name == "search_hotels"
-    assert specialists.search_activities.name == "search_activities"
+    assert specialists.search_sights.name == "search_sights"
+    assert specialists.search_places.name == "search_places"

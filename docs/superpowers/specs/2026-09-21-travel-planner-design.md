@@ -7,11 +7,11 @@
 
 | Question | Decision |
 |---|---|
-| Data source | SerpApi (free 250 searches/month): `google_flights`, `google_hotels`, `google` engine `top_sights`. Amadeus Self-Service was decommissioned 2026-07-17. |
+| Data source | SerpApi (free 250 searches/month): `google_flights`, `google_hotels`, `google` engine `top_sights`, `google_maps` for experiences/dining/nightlife. Amadeus Self-Service was decommissioned 2026-07-17. ~5–7 searches per plan. |
 | Language / LLM | Python, OpenAI Agents SDK (`openai-agents`) |
 | Interface | React (Vite + TypeScript + Tailwind + shadcn) using 21st.dev components (Booking Form, AI Task List), served by FastAPI. Progress streamed over SSE. |
 | Persistence | SQLite plan history (ephemeral on Render — resets on each deploy; acceptable for demo) |
-| Budget overage | Retry loop: re-run the worst-offending agent with a tighter cap, max 2 retries |
+| Budget overage | Retry loop: re-run the worst-offending agent with a tighter cap, max 2 retries; stops early when a retry returns the same total (market floor) |
 | Currency | User selects USD or INR. Flights/hotels requested in that currency via SerpApi `currency`; activity prices parsed from Google's price strings and converted with one rate fetch from frankfurter.app |
 | Hosting | Render free web service from the Dockerfile (HF Docker Spaces became PRO-only in 2026); binds `$PORT`; env vars `OPENAI_API_KEY`, `SERPAPI_API_KEY` |
 
@@ -26,10 +26,10 @@ web/ (React, 21st.dev components) ── EventSource GET /api/plan?… ──►
                                                                        │  calls plan(request, on_event); on_event → SSE events
                                                                        ▼
 orchestrator.py                        specialists.py
-   split budget 40/35/25
+   split budget 35/30/35 (flight / stay / experiences+dining)
    asyncio.gather ───► flight_agent   ── search_flights    (SerpApi google_flights)
                   ───► stay_agent     ── search_hotels     (SerpApi google_hotels)
-                  ───► activity_agent ── search_activities (SerpApi google → top_sights)
+                  ───► activity_agent ── search_sights (google top_sights) + search_places ×2-4 (google_maps)
    validate total; retry worst offender ≤2×
    writer_agent ◄── all three results ── markdown itinerary
    │
@@ -42,7 +42,7 @@ The orchestrator is deterministic Python, not an LLM. Specialist agents are LLM 
 ## Files
 
 - `api.py` — FastAPI. `GET /api/plan?origin&destination&depart&return_date&travelers&budget&currency&preferences` streams `text/event-stream`: one `{kind, status, detail}` event per `on_event` call, then a final `{kind:"plan", status:"done", itinerary, totals, over_budget}` (or `status:"error"`). `GET /api/plans` lists saved plans, `GET /api/plans/{id}` returns one. Mounts `web/dist` as static files when it exists.
-- `web/` — Vite + React + TypeScript + Tailwind + shadcn. 21st.dev components fetched through the 21st.dev MCP connector: Booking Form (adapted to our inputs) and AI Task List (one task per agent; retries shown as subtasks). Itinerary rendered with `react-markdown`. Sidebar of past plans from `/api/plans`.
+- `web/` — Vite + React + TypeScript + Tailwind + shadcn. `<meta name="referrer" content="no-referrer">` so Google photo CDN URLs load; broken images hide themselves. 21st.dev components fetched through the 21st.dev MCP connector: Booking Form (adapted to our inputs) and AI Task List (one task per agent; retries shown as subtasks). Itinerary rendered with `react-markdown`. Sidebar of past plans from `/api/plans`.
 - `Dockerfile` — two-stage: node builds `web/dist`, python image runs `uvicorn api:app` on `$PORT` (default 8000).
 - `orchestrator.py` — `async def plan(req: PlanRequest, on_event) -> PlanResult`. Budget split constants, gather, validate/retry, writer call. City names go straight to the agents; the flight agent converts them to IATA codes itself.
 - `specialists.py` — `serpapi()` helper (urllib), `@function_tool`s, Pydantic output models, four `Agent` definitions. (Not `agents.py` — that name collides with the SDK package.)
@@ -54,17 +54,17 @@ The orchestrator is deterministic Python, not an LLM. Specialist agents are LLM 
 
 Each gets: destination code/name, dates, travelers, its budget cap, currency, and the preferences text. Each has `output_type` set to a Pydantic model so the orchestrator can read `total` without parsing prose. Each is instructed to pick the option that best fits the preferences within the cap, explain the pick in `reason`, and return an empty result with `reason="no options found"` rather than invent data.
 
-- **Flight agent** — tool `search_flights(origin_iata, destination_iata, depart, return_date, adults, currency)` → up to 10 outbound options with Google's round-trip total, airlines, times, stops, duration. Output `FlightPick{airline, depart_at, return_at, stops, total, reason}`.
-- **Stay agent** — tool `search_hotels(city, check_in, check_out, adults, currency, max_nightly)` → up to 15 hotels sorted by price under `max_nightly` (agent derives it from cap ÷ nights). Output `StayPick{name, room, nightly, total, reason}`.
-- **Activity agent** — tool `search_activities(city, currency)` → Google top-sights with a listed price, parsed and converted to the plan currency in-tool. Output `ActivityPlan{items: [{name, price, day}], total, currency, reason}`.
-- **Writer agent** — no tools. Input: request + three results + over-budget flag. Output: markdown with a day-by-day plan (one heading per date), a cost table (flights / stay / activities / total vs budget), and a one-line "why these picks" per section drawn from the `reason` fields.
+- **Flight agent** — tool `search_flights(origin_iata, destination_iata, depart, return_date, adults, currency)` → up to 10 outbound options with Google's round-trip total, airlines, times, stops, duration. Output `FlightPick{airline, depart_at, return_at, stops, total, image (airline logo), reason}`.
+- **Stay agent** — tool `search_hotels(city, check_in, check_out, adults, currency, max_nightly)` → up to 15 hotels in Google's ranking under `max_nightly` (agent derives it from cap ÷ nights), with description, amenities, nearby places, photo. Output `StayPick{name, description, stars, rating, nightly, total, image, reason}`.
+- **Experience agent** (key `activity`) — tools `search_sights(city, currency)` (Google top sights with listed prices, photos) and `search_places(query, city)` (Google Maps: operators, restaurants, bars, clubs with rating, photo, no prices), called 2–4× with preference-driven queries. Every non-departure day gets 1–2 sights/experiences and a dinner; nightlife on 1–2 evenings when asked. Output `ActivityPlan{items: [{name, kind: sight|experience|food|nightlife, description, price, estimated, rating, image, day, time_of_day}], total, estimated_total, currency, reason}`. Prices: listed when Google has one (`estimated=false`); otherwise a typical price flagged `estimated=true` — shown as `~X est.` and totalled under the cost table. Never invent a listed price.
+- **Writer agent** — no tools. Input: request + three results + over-budget flag. Output: markdown — title + overview; cost table with an estimated-portion note; Getting there (airline logo); Where you're staying (photo, description); per day `## Day N` with `### Morning/Afternoon/Evening`, each item as photo + `**Name** · kind · ★rating · price/~est./free` + description; Why these picks.
 
 Model: `OPENAI_MODEL` env var, default `gpt-4.1-mini`; same model for all agents.
 
 ## Budget loop
 
 ```
-caps = {flight: 0.40, stay: 0.35, activity: 0.25} × budget
+caps = {flight: 0.35, stay: 0.30, activity: 0.35} × budget
 results = gather(run each agent with its cap)
 for attempt in range(2):
     total = sum(r.total)

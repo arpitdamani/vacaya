@@ -29,16 +29,16 @@ def test_under_budget_runs_each_agent_once(monkeypatch):
     result = asyncio.run(plan(REQ))
     assert [k for k, _ in calls] == ["flight", "stay", "activity"]
     assert result.totals == {"flight": 400, "stay": 300, "activity": 200}
-    assert result.caps == {"flight": 400, "stay": 350, "activity": 250}
+    assert result.caps == {"flight": 350, "stay": 300, "activity": 350}
     assert result.over_budget is False
     assert result.itinerary_md == "# plan"
 
 
 def test_over_budget_reruns_worst_offender_with_reduced_cap(monkeypatch):
-    # flight cap 400 -> 600 (worst, over by 200). Total 1100 vs budget 1000 -> overage 100 -> new flight cap 300.
+    # flight cap 350 -> 600 (worst, over by 250). Total 1100 vs budget 1000 -> overage 100 -> new flight cap 250.
     calls = setup(monkeypatch, {"flight": [600, 380], "stay": [300], "activity": [200]})
     result = asyncio.run(plan(REQ))
-    assert calls[3] == ("flight", 300)
+    assert calls[3] == ("flight", 250)
     assert len(calls) == 4
     assert result.totals["flight"] == 380
     assert result.over_budget is False

@@ -4,7 +4,7 @@ import type { AgentKind, ProgressEvent } from "@/lib/api";
 const LABEL: Record<AgentKind, string> = {
   flight: "Flight agent — round-trip flights",
   stay: "Stay agent — hotel for the whole trip",
-  activity: "Activity agent — things to do",
+  activity: "Experience agent — sights, activities, dining & nightlife",
   writer: "Itinerary writer — day-by-day plan",
 };
 

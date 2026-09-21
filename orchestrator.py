@@ -7,7 +7,7 @@ from agents import Runner
 
 from specialists import activity_agent, flight_agent, stay_agent, writer_agent
 
-SPLIT = {"flight": 0.40, "stay": 0.35, "activity": 0.25}
+SPLIT = {"flight": 0.35, "stay": 0.30, "activity": 0.35}  # activity = sights, experiences, dining, nightlife
 MAX_RETRIES = 2
 AGENTS = {"flight": flight_agent, "stay": stay_agent, "activity": activity_agent}
 
