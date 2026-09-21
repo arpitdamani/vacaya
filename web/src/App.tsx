@@ -41,35 +41,36 @@ export default function App() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <section className="relative flex min-h-dvh items-center justify-center bg-[url('/hero.jpg')] bg-cover bg-center p-4 py-16 md:p-8 print:hidden">
-        <div className="w-full max-w-2xl rounded-2xl bg-card/95 p-6 shadow-xl backdrop-blur md:p-8">
-          <h1 className="mb-6 text-3xl font-bold leading-tight">
-            Vacaya <span className="block text-base font-normal text-muted-foreground sm:inline sm:ml-2">Your Personal Travel Planner</span>
-          </h1>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-linear-to-t from-background to-transparent" />
+        <div className="relative w-full max-w-2xl rounded-2xl bg-card/95 p-6 shadow-xl backdrop-blur md:p-8">
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <h1 className="text-3xl font-bold leading-tight">
+              Vacaya <span className="block text-base font-normal text-muted-foreground sm:inline sm:ml-2">Your Personal Travel Planner</span>
+            </h1>
+            <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
+              <SheetTrigger render={<Button variant="outline" />}>
+                <History /> Past plans{saved.length > 0 && <span className="text-muted-foreground">({saved.length})</span>}
+              </SheetTrigger>
+              <SheetContent side="left">
+                <SheetHeader>
+                  <SheetTitle>Past plans</SheetTitle>
+                  <SheetDescription>Plans made on this server. Click one to open it.</SheetDescription>
+                </SheetHeader>
+                <ul className="space-y-1 overflow-y-auto px-4 pb-4">
+                  {saved.length === 0 && <li className="text-sm text-muted-foreground">Nothing yet.</li>}
+                  {saved.map((p) => (
+                    <li key={p.id}>
+                      <button onClick={() => open(p)} className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted">
+                        <div className="font-medium">{p.title}</div>
+                        <div className="text-xs text-muted-foreground">{p.total.toLocaleString()} {p.currency} · {p.created_at.slice(0, 10)}</div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </SheetContent>
+            </Sheet>
+          </div>
           <TripForm onSubmit={start} disabled={phase === "running"} />
-        </div>
-        <div className="absolute right-4 top-4 md:right-8 md:top-8">
-          <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
-            <SheetTrigger render={<Button variant="outline" />}>
-              <History /> Past plans{saved.length > 0 && <span className="text-muted-foreground">({saved.length})</span>}
-            </SheetTrigger>
-            <SheetContent side="left">
-              <SheetHeader>
-                <SheetTitle>Past plans</SheetTitle>
-                <SheetDescription>Plans made on this server. Click one to open it.</SheetDescription>
-              </SheetHeader>
-              <ul className="space-y-1 overflow-y-auto px-4 pb-4">
-                {saved.length === 0 && <li className="text-sm text-muted-foreground">Nothing yet.</li>}
-                {saved.map((p) => (
-                  <li key={p.id}>
-                    <button onClick={() => open(p)} className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-muted">
-                      <div className="font-medium">{p.title}</div>
-                      <div className="text-xs text-muted-foreground">{p.total.toLocaleString()} {p.currency} · {p.created_at.slice(0, 10)}</div>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </SheetContent>
-          </Sheet>
         </div>
       </section>
       <div className="mx-auto max-w-5xl p-4 md:p-8">
