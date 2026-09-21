@@ -1,10 +1,3 @@
----
-title: Vacaya
-emoji: 🧳
-sdk: docker
-app_port: 7860
----
-
 # Vacaya - multi-agent travel planner
 
 Enter origin, destination, dates, budget (USD/INR) and preferences. Three specialist agents search Google Flights, Google Hotels and Google's top-sights results (via SerpApi) in parallel
@@ -43,13 +36,15 @@ Or build once and serve everything from FastAPI: `cd web && npm run build`, then
 
 `python -m pytest` - no network; agents, SerpApi and the orchestrator are faked.
 
-## Deploy (Hugging Face Spaces, Docker)
+## Deploy (Render, free)
 
-1. Create a Space at https://huggingface.co/new-space with SDK **Docker**.
-2. Space settings -> Variables and secrets: add `OPENAI_API_KEY` and `SERPAPI_API_KEY` as secrets.
-3. `git remote add hf https://huggingface.co/spaces/<user>/vacaya && git push hf master:main`
+1. Push to GitHub (public repo).
+2. https://dashboard.render.com -> **New -> Web Service** -> connect the repo.
+3. Language **Docker**, instance type **Free**, then under **Environment Variables** add `OPENAI_API_KEY` and `SERPAPI_API_KEY`.
+4. **Deploy Web Service**. Render builds the Dockerfile and assigns the port through `$PORT`.
 
-Plan history lives in a SQLite file inside the container, which resets on rebuild.
+Free instances sleep after 15 minutes idle and take ~50 s to wake. Plan history lives in a SQLite file inside the
+container, which resets on every deploy.
 
 ## Data caveats
 

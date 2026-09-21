@@ -1,7 +1,7 @@
 # Multi-Agent Travel Planner — Design
 
 **Date:** 2026-09-21
-**Purpose:** Portfolio demo. Real data via SerpApi (Google Flights / Hotels / top sights), multi-agent orchestration via OpenAI Agents SDK, React UI built from 21st.dev components served by FastAPI, hosted as one Docker container on Hugging Face Spaces.
+**Purpose:** Portfolio demo. Real data via SerpApi (Google Flights / Hotels / top sights), multi-agent orchestration via OpenAI Agents SDK, React UI built from 21st.dev components served by FastAPI, hosted as one Docker container on Render's free tier.
 
 ## Decisions
 
@@ -10,10 +10,10 @@
 | Data source | SerpApi (free 250 searches/month): `google_flights`, `google_hotels`, `google` engine `top_sights`. Amadeus Self-Service was decommissioned 2026-07-17. |
 | Language / LLM | Python, OpenAI Agents SDK (`openai-agents`) |
 | Interface | React (Vite + TypeScript + Tailwind + shadcn) using 21st.dev components (Booking Form, AI Task List), served by FastAPI. Progress streamed over SSE. |
-| Persistence | SQLite plan history (ephemeral on Hugging Face Spaces — resets on rebuild; acceptable for demo) |
+| Persistence | SQLite plan history (ephemeral on Render — resets on each deploy; acceptable for demo) |
 | Budget overage | Retry loop: re-run the worst-offending agent with a tighter cap, max 2 retries |
 | Currency | User selects USD or INR. Flights/hotels requested in that currency via SerpApi `currency`; activity prices parsed from Google's price strings and converted with one rate fetch from frankfurter.app |
-| Hosting | Hugging Face Spaces, Docker SDK, port 7860 (free; secrets `OPENAI_API_KEY`, `SERPAPI_API_KEY` in Space settings) |
+| Hosting | Render free web service from the Dockerfile (HF Docker Spaces became PRO-only in 2026); binds `$PORT`; env vars `OPENAI_API_KEY`, `SERPAPI_API_KEY` |
 
 ## Inputs
 
@@ -43,7 +43,7 @@ The orchestrator is deterministic Python, not an LLM. Specialist agents are LLM 
 
 - `api.py` — FastAPI. `GET /api/plan?origin&destination&depart&return_date&travelers&budget&currency&preferences` streams `text/event-stream`: one `{kind, status, detail}` event per `on_event` call, then a final `{kind:"plan", status:"done", itinerary, totals, over_budget}` (or `status:"error"`). `GET /api/plans` lists saved plans, `GET /api/plans/{id}` returns one. Mounts `web/dist` as static files when it exists.
 - `web/` — Vite + React + TypeScript + Tailwind + shadcn. 21st.dev components fetched through the 21st.dev MCP connector: Booking Form (adapted to our inputs) and AI Task List (one task per agent; retries shown as subtasks). Itinerary rendered with `react-markdown`. Sidebar of past plans from `/api/plans`.
-- `Dockerfile` — two-stage: node builds `web/dist`, python image runs `uvicorn api:app` on 7860.
+- `Dockerfile` — two-stage: node builds `web/dist`, python image runs `uvicorn api:app` on `$PORT` (default 8000).
 - `orchestrator.py` — `async def plan(req: PlanRequest, on_event) -> PlanResult`. Budget split constants, gather, validate/retry, writer call. City names go straight to the agents; the flight agent converts them to IATA codes itself.
 - `specialists.py` — `serpapi()` helper (urllib), `@function_tool`s, Pydantic output models, four `Agent` definitions. (Not `agents.py` — that name collides with the SDK package.)
 - `db.py` — SQLite, one table `plans(id, created_at, request_json, itinerary_md, total, currency)`.

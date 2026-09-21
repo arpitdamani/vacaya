@@ -1,4 +1,4 @@
-"""Plan history in a local SQLite file. Ephemeral inside the Hugging Face Spaces container (resets on rebuild) - fine for a demo."""
+"""Plan history in a local SQLite file. Ephemeral inside the Render container (resets on each deploy) - fine for a demo."""
 import json
 import sqlite3
 from pathlib import Path
