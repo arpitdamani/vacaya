@@ -15,7 +15,7 @@ export type ActivityItem = {
 export type ActivityPlan = { items: ActivityItem[]; total: number; estimated_total: number; currency: string; reason: string };
 export type Slot = { time_of_day: "morning" | "afternoon" | "evening"; notes: string[]; items: number[] };
 export type Day = { day: number; date: string; title: string; slots: Slot[] };
-export type Itinerary = { title: string; overview: string; estimate_note: string; days: Day[] };
+export type Itinerary = { title: string; overview: string; days: Day[] };
 export type Plan = {
   request: TripInput; totals: Record<string, number>; caps: Record<string, number>; over_budget: boolean;
   flight: FlightPick; stay: StayPick; activity: ActivityPlan; itinerary: Itinerary;

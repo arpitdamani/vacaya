@@ -271,8 +271,7 @@ class Day(BaseModel):
 
 class Itinerary(BaseModel):
     title: str
-    overview: str  # 2-3 sentences; starts with "Over budget by <amount>." when the plan is over budget
-    estimate_note: str  # "" or "~<amount> of the experiences figure is a typical-price estimate, not a quote."
+    overview: str  # 2-3 sentences about the trip; never states prices, totals or budget figures (the app computes and shows those)
     days: list[Day]
 
 
@@ -324,9 +323,8 @@ Rules:
 - One Day per trip date, day 1 = departure date through the return date. `date` is YYYY-MM-DD.
 - Slots: only morning/afternoon/evening slots that have content. Every experience item index appears exactly once in the whole itinerary. Default to each item's assigned day and time_of_day, but you own the timing: nothing may be scheduled before the outbound flight lands on day 1 (a late-evening departure means day 1 has only the flight, so move those items to other days) and nothing after check-out and the airport run on the last day. Each item carries `area` and `hours`: keep a day's items in one area or adjacent areas, order slots to minimise travel, and never place an item in a slot when its hours say it is closed - move it instead. Never invent indexes.
 - `notes`: 1-3 short bullets per slot in the traveler's voice saying what to do, naming the places (e.g. "Take a relaxed seaside walk at Marine Drive and enjoy the skyline."). Day 1 notes cover the outbound flight time and hotel check-in; the last day covers check-out and the return flight. Keep it concrete; no marketing fluff.
-- `title`: catchy, destination-specific. `overview`: 2-3 sentences; if the plan is over budget, start with "Over budget by <amount> <currency>."
-- `estimate_note`: when the experience plan's estimated_total > 0 write "~<amount> <currency> of the experiences figure is a typical-price estimate, not a quote.", else "".
-- If a specialist reported no options, say so in the overview. Prices and places come only from the picks.""",
+- `title`: catchy, destination-specific. `overview`: 2-3 sentences on what the trip is like. Never state prices, totals, differences or budget figures - the app computes and displays all money; if the plan is over budget you may say "This plan runs over budget" without a number.
+- If a specialist reported no options, say so in the overview. Places come only from the picks.""",
     output_type=Itinerary,
     model=MODEL,
 )

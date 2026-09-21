@@ -65,7 +65,11 @@ export function ItineraryView({ plan }: { plan: Plan }) {
             <tr className="border-b border-border"><td className="py-1.5">Budget</td><td className="py-1.5 text-right tabular-nums">{money(req.budget, cur)}</td></tr>
           </tbody>
         </table>
-        {itinerary.estimate_note && <p className="mt-2 text-xs text-muted-foreground">{itinerary.estimate_note}</p>}
+        {activity.estimated_total > 0 && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            ~{money(activity.estimated_total, cur)} of the experiences figure is a typical-price estimate, not a quote.
+          </p>
+        )}
       </section>
 
       <section>

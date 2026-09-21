@@ -63,20 +63,19 @@ async def write_itinerary(req: PlanRequest, results: dict, over_budget: bool) ->
     return (await Runner.run(writer_agent, prompt)).final_output.model_dump()
 
 
-def dedupe_items(act):
-    """Keep the first occurrence of each place; the agent sometimes lists the same beach on three days."""
+def normalize_activity(act):
+    """Keep the first occurrence of each place (the agent sometimes lists the same beach on three days) and
+    recompute the totals from the items - money is never left to LLM arithmetic."""
     seen: set[str] = set()
     kept = []
     for it in act.items:
         key = it.name.strip().lower()
-        if key in seen:
-            act.total -= it.price
-            if it.estimated:
-                act.estimated_total -= it.price
-            continue
-        seen.add(key)
-        kept.append(it)
+        if key not in seen:
+            seen.add(key)
+            kept.append(it)
     act.items = kept
+    act.total = round(sum(it.price for it in kept), 2)
+    act.estimated_total = round(sum(it.price for it in kept if it.estimated), 2)
     return act
 
 
@@ -116,7 +115,7 @@ async def plan(req: PlanRequest, on_event=None) -> PlanResult:
         on_event(kind, "start", f"cap {caps[kind]:.0f} {req.currency}")
         r = await run_specialist(kind, req, caps[kind])
         if kind == "activity":
-            r = dedupe_items(r)
+            r = normalize_activity(r)
         on_event(kind, "done", f"{r.total:.0f} {req.currency}")
         return r
 

@@ -3,7 +3,7 @@ from datetime import date
 from types import SimpleNamespace
 
 import orchestrator
-from orchestrator import PlanRequest, dedupe_items, plan, reconcile
+from orchestrator import PlanRequest, normalize_activity, plan, reconcile
 
 REQ = PlanRequest("Madrid", "Paris", date(2026, 10, 10), date(2026, 10, 14), 1, 1000.0, "USD", "")
 
@@ -15,7 +15,8 @@ def setup(monkeypatch, costs):
     async def run_specialist(kind, req, cap):
         calls.append((kind, cap))
         total = costs[kind].pop(0)
-        return SimpleNamespace(total=total, items=[], model_dump=lambda: {"total": total, "items": []})
+        item = SimpleNamespace(name=f"place-{kind}-{total}", price=total, estimated=False)
+        return SimpleNamespace(total=total, items=[item], model_dump=lambda: {"total": total, "items": []})
 
     async def write_itinerary(req, results, over_budget):
         return {"title": "plan", "days": []}
@@ -91,10 +92,11 @@ def test_retry_that_returns_nothing_keeps_the_original_pick(monkeypatch):
     assert result.over_budget is True
 
 
-def test_dedupe_items_keeps_first_and_fixes_totals():
+def test_normalize_activity_dedupes_and_recomputes_totals_from_items():
     mk = lambda name, price, est: SimpleNamespace(name=name, price=price, estimated=est)
-    act = SimpleNamespace(items=[mk("Candolim Beach", 0, False), mk("Deck 88", 1400, True), mk("candolim beach ", 0, False), mk("Deck 88", 1400, True)],
-                          total=2800, estimated_total=2800)
-    out = dedupe_items(act)
-    assert [i.name for i in out.items] == ["Candolim Beach", "Deck 88"]
-    assert out.total == 1400 and out.estimated_total == 1400
+    act = SimpleNamespace(items=[mk("Candolim Beach", 0, False), mk("Deck 88", 1400, True), mk("candolim beach ", 0, False),
+                                 mk("Deck 88", 1400, True), mk("Fort Aguada", 218, False)],
+                          total=99999, estimated_total=-5)  # agent arithmetic is ignored
+    out = normalize_activity(act)
+    assert [i.name for i in out.items] == ["Candolim Beach", "Deck 88", "Fort Aguada"]
+    assert out.total == 1618 and out.estimated_total == 1400
