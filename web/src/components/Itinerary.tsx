@@ -34,7 +34,7 @@ function Card({ image, name, meta, sub, link, icon, wide = false }: { image: str
       </div>
     </>
   );
-  const cls = `${wide ? "w-72" : "w-52"} shrink-0 overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-sm transition hover:shadow-md`;
+  const cls = `${wide ? "w-full sm:w-72" : "w-full sm:w-52"} shrink-0 overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-sm transition hover:shadow-md`;
   return link ? <a href={link} target="_blank" rel="noopener noreferrer" className={cls}>{inner}</a> : <div className={cls}>{inner}</div>;
 }
 
@@ -47,7 +47,7 @@ export function ItineraryView({ plan }: { plan: Plan }) {
   return (
     <div className="space-y-8">
       <header className="space-y-2">
-        <h1 className="font-heading text-4xl">{itinerary.title}</h1>
+        <h1 className="font-heading text-3xl sm:text-4xl">{itinerary.title}</h1>
         <p className="text-muted-foreground">{itinerary.overview}</p>
         <p className={`font-medium ${plan.over_budget ? "text-destructive" : "text-green-600"}`}>
           {plan.over_budget ? `Over budget by ${money(-diff, cur)}` : `Within budget — ${money(diff, cur)} to spare`}
@@ -74,7 +74,7 @@ export function ItineraryView({ plan }: { plan: Plan }) {
 
       <section>
         <h2 className="mb-3 text-xl font-semibold">Getting there &amp; staying</h2>
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap">
           {flight.total > 0 ? (
             <Card wide icon="✈️" image={flight.image} name={`${flight.airline} — ${req.origin} → ${req.destination}`}
                   meta={`${flight.stops === 0 ? "non-stop" : `${flight.stops} stop${flight.stops > 1 ? "s" : ""}`} · out ${flight.depart_at} · back ${flight.return_at} · ${money(flight.total, cur)} round trip`} />
@@ -89,7 +89,7 @@ export function ItineraryView({ plan }: { plan: Plan }) {
 
       {itinerary.days.map((d) => (
         <section key={d.day} className="space-y-4">
-          <h2 className="font-heading text-3xl">Day {d.day} – {longDate(d.date)} <span className="ml-2 text-2xl italic text-muted-foreground">{d.title}</span></h2>
+          <h2 className="font-heading text-3xl">Day {d.day} – {longDate(d.date)} <span className="block text-2xl italic text-muted-foreground sm:ml-2 sm:inline">{d.title}</span></h2>
           {d.slots.map((s) => {
             const items = s.items.map((i) => activity.items[i]).filter(Boolean);
             return (
@@ -101,7 +101,7 @@ export function ItineraryView({ plan }: { plan: Plan }) {
                   </ul>
                 )}
                 {items.length > 0 && (
-                  <div className="flex flex-wrap gap-4">
+                  <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:gap-4">
                     {items.map((it) => (
                       <Card key={it.name} image={it.image} name={it.name} link={it.link || undefined} icon={KIND_ICON[it.kind]}
                             meta={`${it.kind}${it.area ? ` · ${it.area}` : ""} · ${it.rating ? `★${it.rating} · ` : ""}${priceLabel(it, cur)}`}

@@ -42,14 +42,14 @@ export default function App() {
     <div className="min-h-screen bg-background text-foreground">
       <section className="relative flex min-h-dvh items-center justify-center bg-[url('/hero.jpg')] bg-cover bg-center p-4 py-16 md:p-8 print:hidden">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-linear-to-t from-background to-transparent" />
-        <div className="relative w-full max-w-2xl rounded-2xl bg-card/95 p-6 shadow-xl backdrop-blur md:p-8">
+        <div className="relative w-full max-w-2xl rounded-2xl bg-card/95 p-5 shadow-xl backdrop-blur sm:p-6 md:p-8">
           <div className="mb-6 flex items-start justify-between gap-4">
-            <h1 className="font-heading text-4xl leading-tight">
-              Vacaya <span className="block font-sans text-base text-muted-foreground sm:inline sm:ml-2">Your Personal Travel Planner</span>
+            <h1 className="font-heading text-5xl leading-none">
+              Vacaya <span className="mt-1 block font-sans text-base leading-tight text-muted-foreground sm:mt-0 sm:inline sm:ml-2">Your Personal Travel Planner</span>
             </h1>
             <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
-              <SheetTrigger render={<Button variant="outline" />}>
-                <History /> Past plans{saved.length > 0 && <span className="text-muted-foreground">({saved.length})</span>}
+              <SheetTrigger render={<Button variant="outline" aria-label="Past plans" />}>
+                <History /> <span className="hidden sm:inline">Past plans</span>{saved.length > 0 && <span className="text-muted-foreground">({saved.length})</span>}
               </SheetTrigger>
               <SheetContent side="left">
                 <SheetHeader>
@@ -73,7 +73,7 @@ export default function App() {
           <TripForm onSubmit={start} disabled={phase === "running"} />
         </div>
       </section>
-      <div className="mx-auto max-w-5xl p-4 md:p-8">
+      <div className="mx-auto max-w-5xl p-4 py-6 md:p-8">
         <main ref={mainRef} className="space-y-6">
           {(phase === "running" || events.length > 0) && <div className="print:hidden"><AgentProgress events={events} failed={phase === "error"} /></div>}
           {phase === "error" && <p role="alert" className="rounded-md border border-destructive p-3 text-destructive">{error}</p>}
