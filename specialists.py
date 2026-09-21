@@ -1,41 +1,32 @@
-"""Amadeus-backed tools, typed outputs and the four agents. Orchestration lives in orchestrator.py."""
+"""SerpApi-backed tools (Google Flights / Hotels / top sights), typed outputs and the four agents.
+Orchestration lives in orchestrator.py."""
 import json
 import os
-from datetime import date
+import re
 from functools import lru_cache
+from urllib.error import HTTPError
+from urllib.parse import urlencode
 from urllib.request import urlopen
 
 from agents import Agent, function_tool
-from amadeus import Client, Location, ResponseError
 from pydantic import BaseModel
 
 MODEL = os.getenv("OPENAI_MODEL")  # None -> SDK default
 
-_client = None
 
-
-def amadeus() -> Client:
-    global _client
-    if _client is None:
-        _client = Client(client_id=os.environ["AMADEUS_CLIENT_ID"], client_secret=os.environ["AMADEUS_CLIENT_SECRET"])
-    return _client
-
-
-# ---------- shared helpers (called by the orchestrator, not by agents) ----------
-
-class City(BaseModel):
-    code: str
-    name: str
-    lat: float
-    lon: float
-
-
-def resolve_city(name: str) -> City:
-    data = amadeus().reference_data.locations.get(keyword=name, subType=Location.CITY).data
-    if not data:
-        raise ValueError(f"Amadeus does not know a city called {name!r}")
-    d = data[0]
-    return City(code=d["iataCode"], name=d["name"], lat=d["geoCode"]["latitude"], lon=d["geoCode"]["longitude"])
+def serpapi(**params) -> dict:
+    """One SerpApi search. Returns the JSON dict; on any failure returns {"error": "..."} so tools never raise."""
+    params = {k: v for k, v in params.items() if v is not None} | {"api_key": os.environ["SERPAPI_API_KEY"]}
+    try:
+        with urlopen(f"https://serpapi.com/search.json?{urlencode(params)}", timeout=30) as r:
+            return json.load(r)
+    except HTTPError as e:
+        try:
+            return {"error": json.load(e).get("error", str(e))}
+        except Exception:
+            return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @lru_cache
@@ -52,106 +43,110 @@ def fx_rate(src: str, dst: str) -> float | None:
 # ---------- tools ----------
 
 def _search_flights(origin: str, destination: str, depart: str, return_date: str, adults: int, currency: str) -> str:
-    """Search the cheapest round-trip flight offers. Returns a JSON list sorted by price, each with total price for all travelers, outbound and inbound legs (times, stops, carriers).
+    """Search round-trip flights on Google Flights. Returns a JSON list of outbound options, each with the round-trip price for all travelers (Google pairs the cheapest return), airlines, times, stops and total duration in minutes.
 
     Args:
-        origin: IATA city or airport code, e.g. MAD
-        destination: IATA city or airport code, e.g. PAR
+        origin: IATA airport code of the departure airport, e.g. MAD, JFK, BOM
+        destination: IATA airport code of the arrival airport, e.g. CDG, LHR, DEL
         depart: outbound date YYYY-MM-DD
         return_date: return date YYYY-MM-DD
         adults: number of travelers
         currency: ISO currency code, USD or INR
     """
-    try:
-        offers = amadeus().shopping.flight_offers_search.get(
-            originLocationCode=origin, destinationLocationCode=destination,
-            departureDate=depart, returnDate=return_date, adults=adults,
-            currencyCode=currency, max=10,
-        ).data
-    except ResponseError as e:
-        return json.dumps({"error": str(e)})
-
-    def leg(itinerary):
-        segs = itinerary["segments"]
-        return {
-            "depart_at": segs[0]["departure"]["at"],
-            "arrive_at": segs[-1]["arrival"]["at"],
-            "stops": len(segs) - 1,
-            "carriers": sorted({s["carrierCode"] for s in segs}),
-        }
-
-    return json.dumps([{
-        "total": float(o["price"]["grandTotal"]),
-        "currency": o["price"]["currency"],
-        "outbound": leg(o["itineraries"][0]),
-        "inbound": leg(o["itineraries"][1]),
-    } for o in offers])
+    data = serpapi(engine="google_flights", departure_id=origin.upper(), arrival_id=destination.upper(),
+                   outbound_date=depart, return_date=return_date, adults=adults, currency=currency, type=1, hl="en")
+    if "error" in data:
+        return json.dumps({"error": data["error"]})
+    out = []
+    for o in (data.get("best_flights") or []) + (data.get("other_flights") or []):
+        segs = o.get("flights") or []
+        if not segs or o.get("price") is None:
+            continue
+        out.append({
+            "total": float(o["price"]),
+            "currency": currency,
+            "airlines": sorted({s.get("airline", "?") for s in segs}),
+            "depart_at": segs[0]["departure_airport"].get("time"),
+            "arrive_at": segs[-1]["arrival_airport"].get("time"),
+            "stops": len(o.get("layovers") or []),
+            "duration_min": o.get("total_duration"),
+        })
+    return json.dumps(out[:10])
 
 
-def _search_hotels(city_code: str, check_in: str, check_out: str, adults: int, currency: str) -> str:
-    """Search hotel offers in a city for the whole stay. Returns a JSON list with hotel name, total price for the stay, nightly price and room description.
+def _search_hotels(city: str, check_in: str, check_out: str, adults: int, currency: str, max_nightly: int) -> str:
+    """Search hotels on Google Hotels for the whole stay. Returns a JSON list with name, nightly and total price, star class, rating and a short description.
 
     Args:
-        city_code: IATA city code, e.g. PAR
+        city: destination city name, e.g. Paris
         check_in: check-in date YYYY-MM-DD
         check_out: check-out date YYYY-MM-DD
         adults: number of guests
         currency: ISO currency code, USD or INR
+        max_nightly: maximum price per night in `currency` (whole number); derive it from your cap divided by the number of nights
     """
-    try:
-        hotels = amadeus().reference_data.locations.hotels.by_city.get(cityCode=city_code).data[:20]
-        if not hotels:
-            return json.dumps([])
-        offers = amadeus().shopping.hotel_offers_search.get(
-            hotelIds=",".join(h["hotelId"] for h in hotels),
-            checkInDate=check_in, checkOutDate=check_out, adults=adults,
-            currency=currency, bestRateOnly=True,
-        ).data
-    except ResponseError as e:
-        return json.dumps({"error": str(e)})
-    nights = max((date.fromisoformat(check_out) - date.fromisoformat(check_in)).days, 1)
+    data = serpapi(engine="google_hotels", q=f"{city} hotels", check_in_date=check_in, check_out_date=check_out,
+                   adults=adults, currency=currency, max_price=max(int(max_nightly), 1), sort_by=3, hl="en", gl="us")
+    if "error" in data:
+        return json.dumps({"error": data["error"]})
     out = []
-    for h in offers:
-        for o in h.get("offers", []):
-            total = float(o["price"]["total"])
-            out.append({
-                "name": h["hotel"]["name"],
-                "hotel_id": h["hotel"]["hotelId"],
-                "total": total,
-                "nightly": round(total / nights, 2),
-                "currency": o["price"]["currency"],
-                "room": (o.get("room", {}).get("description", {}).get("text") or "")[:120],
-            })
-    return json.dumps(out)
+    for p in data.get("properties") or []:
+        total = (p.get("total_rate") or {}).get("extracted_lowest")
+        if total is None:
+            continue
+        out.append({
+            "name": p.get("name"),
+            "total": float(total),
+            "nightly": (p.get("rate_per_night") or {}).get("extracted_lowest"),
+            "currency": currency,
+            "stars": p.get("hotel_class"),
+            "rating": p.get("overall_rating"),
+            "description": (p.get("description") or "")[:160],
+        })
+    return json.dumps(out[:15])
 
 
-def _search_activities(lat: float, lon: float, currency: str) -> str:
-    """Find bookable tours and activities within 10 km of a point. Returns a JSON list with name, description, price, currency and rating. Prices are converted to `currency` when an exchange rate is available; otherwise the item keeps its original currency.
+_SYMBOL = {"$": "USD", "€": "EUR", "£": "GBP", "₹": "INR"}
+
+
+def _parse_price(text: str | None) -> tuple[float, str] | None:
+    """'$25' -> (25.0, 'USD'); 'Free' -> (0.0, 'USD'); None/unparseable -> None."""
+    if not text:
+        return None
+    if text.strip().lower() == "free":
+        return 0.0, "USD"
+    m = re.search(r"[\d][\d,]*(?:\.\d+)?", text)
+    if not m:
+        return None
+    cur = next((c for s, c in _SYMBOL.items() if s in text), "USD")
+    return float(m.group().replace(",", "")), cur
+
+
+def _search_activities(city: str, currency: str) -> str:
+    """Find top sights and things to do in a city (Google 'top sights'). Returns a JSON list with name, description, rating, price and currency. Prices are converted to `currency` when an exchange rate is available; otherwise the item keeps its original currency. Items without a listed price are omitted.
 
     Args:
-        lat: latitude of the city centre
-        lon: longitude of the city centre
+        city: destination city name, e.g. Paris
         currency: ISO currency code the traveler budgets in, USD or INR
     """
-    try:
-        acts = amadeus().shopping.activities.get(latitude=lat, longitude=lon, radius=10).data
-    except ResponseError as e:
-        return json.dumps({"error": str(e)})
+    data = serpapi(engine="google", q=f"top sights in {city}", hl="en", gl="us")
+    if "error" in data:
+        return json.dumps({"error": data["error"]})
     out = []
-    for a in acts:
-        price = a.get("price") or {}
-        if not price.get("amount"):
+    for s in (data.get("top_sights") or {}).get("sights") or []:
+        parsed = _parse_price(s.get("price"))
+        if parsed is None:
             continue
-        amount, cur = float(price["amount"]), price.get("currencyCode", "EUR")
+        amount, cur = parsed
         rate = fx_rate(cur, currency)
-        if rate:
+        if rate is not None:
             amount, cur = round(amount * rate, 2), currency
         out.append({
-            "name": a["name"],
-            "description": (a.get("shortDescription") or "")[:160],
+            "name": s.get("title"),
+            "description": (s.get("description") or "")[:160],
+            "rating": s.get("rating"),
             "price": amount,
             "currency": cur,
-            "rating": a.get("rating"),
         })
     return json.dumps(out[:40])
 
@@ -202,7 +197,7 @@ Write `reason` as one or two sentences addressed to the traveler explaining why 
 
 flight_agent = Agent(
     name="Flight agent",
-    instructions=_COMMON + "You handle round-trip flights. `airline` is the carrier code(s), `depart_at`/`return_at` are the outbound and inbound departure times.",
+    instructions=_COMMON + "You handle round-trip flights. Convert the city names to the main IATA airport codes yourself (e.g. Madrid -> MAD, Paris -> CDG, London -> LHR, Mumbai -> BOM, New York -> JFK). `airline` is the carrier name(s); `depart_at` is the outbound departure time; `return_at` is the return date (Google pairs the cheapest return leg).",
     tools=[search_flights],
     output_type=FlightPick,
     model=MODEL,
@@ -210,7 +205,7 @@ flight_agent = Agent(
 
 stay_agent = Agent(
     name="Stay agent",
-    instructions=_COMMON + "You handle the hotel for the whole stay. `total` is the price for all nights.",
+    instructions=_COMMON + "You handle the hotel for the whole stay. Set `max_nightly` to your cap divided by the number of nights. `total` is the price for all nights; `room` is a short description (star class, rating, what stands out).",
     tools=[search_hotels],
     output_type=StayPick,
     model=MODEL,

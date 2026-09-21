@@ -12,16 +12,15 @@ def setup(monkeypatch, costs):
     """Fake agents: each call pops the next cost for that kind. Records (kind, cap) per call."""
     calls = []
 
-    async def run_specialist(kind, req, cities, cap):
+    async def run_specialist(kind, req, cap):
         calls.append((kind, cap))
         return SimpleNamespace(total=costs[kind].pop(0))
 
-    async def write_itinerary(req, cities, results, over_budget):
+    async def write_itinerary(req, results, over_budget):
         return "# plan"
 
     monkeypatch.setattr(orchestrator, "run_specialist", run_specialist)
     monkeypatch.setattr(orchestrator, "write_itinerary", write_itinerary)
-    monkeypatch.setattr(orchestrator, "resolve_city", lambda name: SimpleNamespace(code="X", name=name, lat=0.0, lon=0.0))
     return calls
 
 

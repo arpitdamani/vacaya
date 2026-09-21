@@ -24,7 +24,7 @@ PARAMS = dict(origin="Madrid", destination="Paris", depart="2026-10-10", return_
 
 
 def set_keys(monkeypatch):
-    for k in ("OPENAI_API_KEY", "AMADEUS_CLIENT_ID", "AMADEUS_CLIENT_SECRET"):
+    for k in ("OPENAI_API_KEY", "SERPAPI_API_KEY"):
         monkeypatch.setenv(k, "x")
 
 
@@ -70,6 +70,6 @@ def test_plan_rejects_bad_input(monkeypatch):
 
 def test_plan_reports_missing_keys(monkeypatch):
     set_keys(monkeypatch)
-    monkeypatch.delenv("AMADEUS_CLIENT_SECRET")
+    monkeypatch.delenv("SERPAPI_API_KEY")
     r = TestClient(api.app).get("/api/plan", params=PARAMS)
-    assert r.status_code == 503 and "AMADEUS_CLIENT_SECRET" in r.json()["detail"]
+    assert r.status_code == 503 and "SERPAPI_API_KEY" in r.json()["detail"]

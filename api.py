@@ -18,7 +18,7 @@ from orchestrator import PlanRequest, plan
 load_dotenv()
 app = FastAPI(title="Vacaya")
 
-REQUIRED_KEYS = ("OPENAI_API_KEY", "AMADEUS_CLIENT_ID", "AMADEUS_CLIENT_SECRET")
+REQUIRED_KEYS = ("OPENAI_API_KEY", "SERPAPI_API_KEY")
 
 
 @app.get("/api/plans")
