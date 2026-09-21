@@ -40,7 +40,6 @@ export default function App() {
       <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-8">
         <header className="flex items-center justify-between gap-4 print:hidden">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="" className="h-12 w-12" />
             <h1 className="text-3xl font-bold leading-tight">
               Vacaya <span className="block text-base font-normal text-muted-foreground sm:inline sm:ml-2">Your Personal Travel Planner</span>
             </h1>
