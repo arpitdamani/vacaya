@@ -47,7 +47,7 @@ export function ItineraryView({ plan }: { plan: Plan }) {
   return (
     <div className="space-y-8">
       <header className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">{itinerary.title}</h1>
+        <h1 className="font-heading text-4xl">{itinerary.title}</h1>
         <p className="text-muted-foreground">{itinerary.overview}</p>
         <p className={`font-medium ${plan.over_budget ? "text-destructive" : "text-green-600"}`}>
           {plan.over_budget ? `Over budget by ${money(-diff, cur)}` : `Within budget — ${money(diff, cur)} to spare`}
@@ -89,7 +89,7 @@ export function ItineraryView({ plan }: { plan: Plan }) {
 
       {itinerary.days.map((d) => (
         <section key={d.day} className="space-y-4">
-          <h2 className="text-2xl font-bold">Day {d.day} – {longDate(d.date)} <span className="ml-2 text-base font-normal text-muted-foreground">{d.title}</span></h2>
+          <h2 className="font-heading text-3xl">Day {d.day} – {longDate(d.date)} <span className="ml-2 text-2xl italic text-muted-foreground">{d.title}</span></h2>
           {d.slots.map((s) => {
             const items = s.items.map((i) => activity.items[i]).filter(Boolean);
             return (

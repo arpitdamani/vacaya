@@ -44,8 +44,8 @@ export default function App() {
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-linear-to-t from-background to-transparent" />
         <div className="relative w-full max-w-2xl rounded-2xl bg-card/95 p-6 shadow-xl backdrop-blur md:p-8">
           <div className="mb-6 flex items-start justify-between gap-4">
-            <h1 className="text-3xl font-bold leading-tight">
-              Vacaya <span className="block text-base font-normal text-muted-foreground sm:inline sm:ml-2">Your Personal Travel Planner</span>
+            <h1 className="font-heading text-4xl leading-tight">
+              Vacaya <span className="block font-sans text-base text-muted-foreground sm:inline sm:ml-2">Your Personal Travel Planner</span>
             </h1>
             <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
               <SheetTrigger render={<Button variant="outline" />}>
