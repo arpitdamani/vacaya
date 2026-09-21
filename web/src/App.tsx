@@ -37,13 +37,11 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-8">
-        <header className="flex items-center justify-between gap-4 print:hidden">
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold leading-tight">
-              Vacaya <span className="block text-base font-normal text-muted-foreground sm:inline sm:ml-2">Your Personal Travel Planner</span>
-            </h1>
-          </div>
+      <header className="bg-[url('/hero.jpg')] bg-cover bg-center print:hidden">
+        <div className="mx-auto flex min-h-64 max-w-5xl items-start justify-between gap-4 p-4 md:min-h-80 md:p-8">
+          <h1 className="rounded-xl bg-background/85 px-5 py-3 text-3xl font-bold leading-tight shadow-md backdrop-blur-sm">
+            Vacaya <span className="block text-base font-normal text-muted-foreground sm:inline sm:ml-2">Your Personal Travel Planner</span>
+          </h1>
           <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
             <SheetTrigger render={<Button variant="outline" />}>
               <History /> Past plans{saved.length > 0 && <span className="text-muted-foreground">({saved.length})</span>}
@@ -66,9 +64,11 @@ export default function App() {
               </ul>
             </SheetContent>
           </Sheet>
-        </header>
+        </div>
+      </header>
+      <div className="mx-auto max-w-5xl p-4 md:p-8">
         <main className="space-y-6">
-          <div className="print:hidden"><TripForm onSubmit={start} disabled={phase === "running"} /></div>
+          <div className="-mt-20 print:mt-0 print:hidden md:-mt-28"><TripForm onSubmit={start} disabled={phase === "running"} /></div>
           {(phase === "running" || events.length > 0) && <div className="print:hidden"><AgentProgress events={events} failed={phase === "error"} /></div>}
           {phase === "error" && <p role="alert" className="rounded-md border border-destructive p-3 text-destructive">{error}</p>}
           {plan && (
