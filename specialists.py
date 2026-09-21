@@ -159,11 +159,28 @@ def _search_sights(city: str, currency: str) -> str:
     return json.dumps(out[:40])
 
 
+def _num(v, cast=float):
+    try:
+        return cast(str(v).replace(",", ""))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _compact_hours(op: dict | None) -> str:
+    """{'monday': '9 AM–6 PM', ...} -> 'daily 9 AM–6 PM' or 'Mon 9 AM–6 PM; Tue Closed; ...'."""
+    if not op:
+        return ""
+    vals = list(op.values())
+    if len(set(vals)) == 1:
+        return f"daily {vals[0]}"
+    return "; ".join(f"{d[:3].title()} {h}" for d, h in op.items())
+
+
 def _search_places(query: str, city: str) -> str:
-    """Google Maps search for experiences, tours, water sports, classes, restaurants, cafes, bars, nightclubs, markets and shops. Returns a JSON list with name, category, rating, review count, address, opening status, a photo URL and a Google Maps link. Google Maps does not list prices, so estimate typical per-person prices yourself and flag them as estimates.
+    """Google Maps search for experiences, tours, water sports, classes, restaurants, cafes, bars, nightclubs, markets and shops. Returns a JSON list sorted best-first (rating, then review count) with name, category, rating, review count, address, opening hours, a photo URL and a Google Maps link. Google Maps does not list prices, so estimate typical prices yourself and flag them as estimates.
 
     Args:
-        query: what to look for, specific and preference-driven, e.g. "parasailing and jet ski", "vegetarian restaurants", "nightclubs", "cooking class", "rooftop bars"
+        query: a targeted query that will surface the specific places you have in mind - name a place or a neighbourhood, e.g. "Britto's Baga Beach", "seafood shacks Anjuna", "rooftop bars Bandra West", "parasailing Candolim", "Kala Ghoda cafes"
         city: destination city or region name, e.g. Goa
     """
     data = serpapi(engine="google_maps", q=f"{query} in {city}", type="search", hl="en")
@@ -176,13 +193,14 @@ def _search_places(query: str, city: str) -> str:
         out.append({
             "name": r["title"],
             "category": r.get("type"),
-            "rating": r.get("rating"),
-            "reviews": r.get("reviews"),
+            "rating": _num(r.get("rating")),
+            "reviews": _num(r.get("reviews"), int),
             "address": r.get("address"),
-            "open": r.get("open_state"),
+            "hours": _compact_hours(r.get("operating_hours")) or (r.get("open_state") or ""),
             "image": r.get("thumbnail") or "",
             "link": f"https://www.google.com/maps/place/?q=place_id:{r['place_id']}" if r.get("place_id") else (r.get("website") or ""),
         })
+    out.sort(key=lambda x: (x["rating"], x["reviews"]), reverse=True)
     return json.dumps(out[:12])
 
 
@@ -222,6 +240,8 @@ class ActivityItem(BaseModel):
     price: float  # total for all travelers in the plan currency; 0 if free
     estimated: bool  # True when no listed price existed and this is a typical-price estimate
     rating: float  # 0 if unknown
+    area: str  # neighbourhood / part of town, derived from the address, e.g. "Colaba" or "Anjuna"
+    hours: str  # opening hours from the tool result, or ""
     image: str  # photo URL or ""
     link: str  # Google Maps / Google page URL from the tool result, or ""
     day: int  # 1-based day of the trip
@@ -259,13 +279,13 @@ class Itinerary(BaseModel):
 # ---------- agents ----------
 
 _COMMON = """You are one specialist in a team planning a trip. You receive the trip details, the traveler's preferences and a budget cap for your part.
-Call your search tool once, then pick the single best option that fits the preferences and stays within the cap. Prefer the cheapest option that still matches the preferences.
-If the tool returns an error or no options, do not invent anything: set total to 0, leave other fields empty or 0, and explain in `reason`. If every option exceeds the cap, pick the cheapest and say so in `reason`.
+Call your search tool once, then pick the single option that best fits the preferences within the cap. Quality and fit beat cheapness: the cap is there to be used, so do not leave most of it unspent when a clearly better option is affordable - but never exceed it unless every option does, in which case pick the cheapest and say so in `reason`.
+Set total to 0 only when the tool returned an error or an empty list - never because the options are above the cap. If the tool returns an error or no options, do not invent anything: leave other fields empty or 0 and explain in `reason`.
 Write `reason` as one or two sentences addressed to the traveler explaining why this pick matches their preferences. """
 
 flight_agent = Agent(
     name="Flight agent",
-    instructions=_COMMON + "You handle round-trip flights. All else similar, prefer an outbound that lands by mid-afternoon on day 1 and a return that leaves after mid-morning on the last day, so both days are usable; if you take a cheaper red-eye instead, say what it costs in usable time in `reason`. Convert the city names to the main IATA airport codes yourself (e.g. Madrid -> MAD, Paris -> CDG, London -> LHR, Mumbai -> BOM, Goa -> GOI, New York -> JFK). `airline` is the carrier name(s); `depart_at` is the outbound departure time; `return_at` is the return date (Google pairs the cheapest return leg); `image` is the airline_logo from the tool result.",
+    instructions=_COMMON + "You handle round-trip flights. For flights price matters most: pay a modest premium only for non-stop or usable times. All else similar, prefer an outbound that lands by mid-afternoon on day 1 and a return that leaves after mid-morning on the last day, so both days are usable; if you take a cheaper red-eye instead, say what it costs in usable time in `reason`. Convert the city names to the main IATA airport codes yourself (e.g. Madrid -> MAD, Paris -> CDG, London -> LHR, Mumbai -> BOM, Goa -> GOI, New York -> JFK). `airline` is the carrier name(s); `depart_at` is the outbound departure time; `return_at` is the return date (Google pairs the cheapest return leg); `image` is the airline_logo from the tool result.",
     tools=[search_flights],
     output_type=FlightPick,
     model=MODEL,
@@ -273,7 +293,7 @@ flight_agent = Agent(
 
 stay_agent = Agent(
     name="Stay agent",
-    instructions=_COMMON + "You handle the hotel for the whole stay. Set `max_nightly` to your cap divided by the number of nights. Prefer well-rated places (rating >= 4) that match the preferences over the absolute cheapest. `total` is the price for all nights. Write `description` in 2-3 sentences from the tool's description, amenities and nearby places: what the place is like, where it is, what stands out. Copy `stars`, `rating` and `image` from the tool result.",
+    instructions=_COMMON + "You handle the hotel for the whole stay. Set `max_nightly` to your cap divided by the number of nights. Aim for the best-rated hotel (rating >= 4.2 with plenty of reviews) that matches the preferences and location needs under the cap; spending most of the cap on a clearly better hotel is the right call, a cheap low-rated one is not. `total` is the price for all nights. Write `description` in 2-3 sentences from the tool's description, amenities and nearby places: what the place is like, where it is, what stands out. Copy `stars`, `rating` and `image` from the tool result.",
     tools=[search_hotels],
     output_type=StayPick,
     model=MODEL,
@@ -281,12 +301,17 @@ stay_agent = Agent(
 
 activity_agent = Agent(
     name="Experience agent",
-    instructions="""You are one specialist in a team planning a trip: you plan what the traveler does, eats and where they go out, day by day. You receive the trip details, the traveler's preferences and a budget cap for everything you pick.
-Research first: call `search_sights` once, then call `search_places` 2 to 4 times with specific queries driven by the preferences and the destination - e.g. "parasailing and jet ski" or "kayaking tours" for beach destinations, "vegetarian restaurants" or "seafood restaurants" for food preferences, "nightclubs" or "beach clubs" or "rooftop bars" when nightlife is wanted, "cooking class", "museums", "walking tours" as fits. Do not repeat the same query.
-Then build the plan: every day of the trip except the departure day must have 2-3 sights, experiences or shopping stops (spread over morning/afternoon) and 1-2 food stops (a cafe or lunch spot plus dinner) - never leave a day empty; add nightlife on 1-2 evenings if the preferences ask for it. Vary the days and neighbourhoods. `day` is 1-based; the departure day gets at most one light morning item.
-Prices: use a listed price from `search_sights` when there is one (estimated=false). Google Maps has no prices, so for experiences, meals and nightlife give a typical total price for all travelers in the plan currency and set estimated=true - be realistic for the destination. Never present an estimate as a quote. Keep `total` (listed + estimated) within the cap; `estimated_total` is the estimated part.
-`description`: 1-2 concrete sentences on what the traveler will actually do or see there and why it fits their preferences. `rating`, `image` and `link` come from the tool results (0 / "" if absent) - always copy `link` so the traveler can open the place on Google. Use kind "shopping" for markets and shopping streets.
-If a tool errors or returns nothing, say so in `reason` and do not invent places. `reason`: two sentences addressed to the traveler on how the mix matches their preferences and budget.""",
+    instructions="""You are the local-expert specialist in a team planning a trip: you decide what the traveler does, where they eat and where they go out, day by day. You receive the trip details, the traveler's preferences and a budget cap for everything you pick.
+
+Think like a well-travelled local first: for this destination and these preferences, which specific places, operators, neighbourhoods and dishes would you personally recommend? Then verify with the tools: call `search_sights` once, and `search_places` 2 to 4 times with targeted queries that will surface your recommendations - name a place or a neighbourhood, not a generic category (e.g. "Britto's Baga Beach", "seafood shacks Anjuna", "rooftop bars Bandra West", "parasailing Candolim", "Kala Ghoda cafes"). Never repeat a query. Only include places that appear in a tool result, so every pick carries a verified rating, photo and link.
+
+Selection: prefer rating >= 4.3 with >= 300 reviews; never pick below 4.0 or under 50 reviews unless nothing else fits, and then say so in `reason`. Skip chains and tourist traps when a better local option is in the results.
+
+Plan: every day except the departure day gets 2-3 sights, experiences or shopping stops (morning/afternoon) and 1-2 food stops (a cafe or lunch plus dinner); nightlife on 1-2 evenings if the preferences ask for it. Cluster each day in ONE area - set `area` (neighbourhood, from the address) on every item and keep a day's items in the same or adjacent areas so the traveler is not criss-crossing the city. `time_of_day` must be consistent with `hours`: never schedule a place when it is closed (a cafe closing at 6 PM is not an evening pick; a bar opening at 7 PM is not a morning one). `day` is 1-based; the departure day gets at most one light morning item; never leave another day empty. Each place appears at most once in the whole trip - do not list the same beach or cafe on several days.
+
+Prices: use a listed price from `search_sights` when there is one (estimated=false). Google Maps has no prices, so for experiences, meals and nightlife give a realistic typical total for all travelers in the plan currency and set estimated=true. Never present an estimate as a quote. Keep `total` (listed + estimated) within the cap; `estimated_total` is the estimated part. Use the cap well - quality and fit beat cheapness, but do not exceed it.
+
+Fields: `description` is 1-2 concrete sentences on what the traveler will actually do or see and why it fits them (what to order, what to book, best time). `area`, `hours`, `rating`, `image` and `link` come from the tool result ("" / 0 if absent). Use kind "shopping" for markets and shopping streets. `reason`: two sentences to the traveler on how the mix fits their preferences and budget. If a tool errors or returns nothing usable, say so in `reason` rather than inventing.""",
     tools=[search_sights, search_places],
     output_type=ActivityPlan,
     model=MODEL,
@@ -297,7 +322,7 @@ writer_agent = Agent(
     instructions="""You turn the specialists' picks into a day-by-day itinerary structure. You receive the trip details, the flight and hotel picks, and a numbered list of experience items (each already assigned a day and time of day).
 Rules:
 - One Day per trip date, day 1 = departure date through the return date. `date` is YYYY-MM-DD.
-- Slots: only morning/afternoon/evening slots that have content. Every experience item index appears exactly once in the whole itinerary. Default to each item's assigned day and time_of_day, but you own the timing: nothing may be scheduled before the outbound flight lands on day 1 (a late-evening departure means day 1 has only the flight, so move those items to other days) and nothing after check-out and the airport run on the last day. Never invent indexes.
+- Slots: only morning/afternoon/evening slots that have content. Every experience item index appears exactly once in the whole itinerary. Default to each item's assigned day and time_of_day, but you own the timing: nothing may be scheduled before the outbound flight lands on day 1 (a late-evening departure means day 1 has only the flight, so move those items to other days) and nothing after check-out and the airport run on the last day. Each item carries `area` and `hours`: keep a day's items in one area or adjacent areas, order slots to minimise travel, and never place an item in a slot when its hours say it is closed - move it instead. Never invent indexes.
 - `notes`: 1-3 short bullets per slot in the traveler's voice saying what to do, naming the places (e.g. "Take a relaxed seaside walk at Marine Drive and enjoy the skyline."). Day 1 notes cover the outbound flight time and hotel check-in; the last day covers check-out and the return flight. Keep it concrete; no marketing fluff.
 - `title`: catchy, destination-specific. `overview`: 2-3 sentences; if the plan is over budget, start with "Over budget by <amount> <currency>."
 - `estimate_note`: when the experience plan's estimated_total > 0 write "~<amount> <currency> of the experiences figure is a typical-price estimate, not a quote.", else "".

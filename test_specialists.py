@@ -1,7 +1,7 @@
 import json
 
 import specialists
-from specialists import _parse_price, _search_flights, _search_hotels, _search_places, _search_sights
+from specialists import _compact_hours, _parse_price, _search_flights, _search_hotels, _search_places, _search_sights
 
 
 def fake_serpapi(monkeypatch, response):
@@ -71,17 +71,25 @@ def test_search_sights_keeps_source_currency_when_fx_fails(monkeypatch):
     assert out[0]["price"] == 5.0 and out[0]["currency"] == "EUR"
 
 
-def test_search_places_reshapes_maps_results(monkeypatch):
+def test_search_places_reshapes_and_sorts_best_first(monkeypatch):
     calls = fake_serpapi(monkeypatch, {"local_results": [
-        {"title": "Prince of Sal Water Sports", "type": "Water sports equipment rental service", "rating": "4.8", "reviews": "687",
-         "address": "Mobor, Goa", "open_state": "Open", "thumbnail": "http://img/p.jpg", "place_id": "ChIJabc"},
+        {"title": "Meh Shack", "type": "Restaurant", "rating": 4.1, "reviews": 2000, "address": "Baga, Goa", "open_state": "Open"},
+        {"title": "Prince of Sal Water Sports", "type": "Water sports equipment rental service", "rating": "4.8", "reviews": "1,687",
+         "address": "Mobor, Goa", "operating_hours": {"monday": "9 AM–6 PM", "tuesday": "9 AM–6 PM"}, "thumbnail": "http://img/p.jpg", "place_id": "ChIJabc"},
         {"rating": "4.0"},
     ]})
-    out = json.loads(_search_places("parasailing and jet ski", "Goa"))
-    assert calls[0]["engine"] == "google_maps" and calls[0]["q"] == "parasailing and jet ski in Goa"
-    assert out == [{"name": "Prince of Sal Water Sports", "category": "Water sports equipment rental service", "rating": "4.8",
-                    "reviews": "687", "address": "Mobor, Goa", "open": "Open", "image": "http://img/p.jpg",
-                    "link": "https://www.google.com/maps/place/?q=place_id:ChIJabc"}]
+    out = json.loads(_search_places("parasailing Candolim", "Goa"))
+    assert calls[0]["engine"] == "google_maps" and calls[0]["q"] == "parasailing Candolim in Goa"
+    assert out[0] == {"name": "Prince of Sal Water Sports", "category": "Water sports equipment rental service", "rating": 4.8,
+                      "reviews": 1687, "address": "Mobor, Goa", "hours": "daily 9 AM–6 PM", "image": "http://img/p.jpg",
+                      "link": "https://www.google.com/maps/place/?q=place_id:ChIJabc"}
+    assert out[1]["name"] == "Meh Shack" and out[1]["hours"] == "Open" and len(out) == 2
+
+
+def test_compact_hours():
+    assert _compact_hours(None) == ""
+    assert _compact_hours({"monday": "9 AM–6 PM", "sunday": "9 AM–6 PM"}) == "daily 9 AM–6 PM"
+    assert _compact_hours({"monday": "Closed", "tuesday": "10 AM–8 PM"}) == "Mon Closed; Tue 10 AM–8 PM"
 
 
 def test_tools_have_expected_names():

@@ -16,7 +16,7 @@ function longDate(iso: string) {
 }
 
 /** One card: photo, name, "kind · ★rating · price". Links to the Google page when we have one. */
-function Card({ image, name, meta, link, icon, wide = false }: { image: string; name: string; meta: string; link?: string; icon: string; wide?: boolean }) {
+function Card({ image, name, meta, sub, link, icon, wide = false }: { image: string; name: string; meta: string; sub?: string; link?: string; icon: string; wide?: boolean }) {
   const inner = (
     <>
       <div className={`${wide ? "h-40" : "h-32"} w-full overflow-hidden bg-muted`}>
@@ -30,6 +30,7 @@ function Card({ image, name, meta, link, icon, wide = false }: { image: string; 
       <div className="border-t border-border p-3">
         <div className="line-clamp-2 font-medium leading-tight" title={name}>{name}</div>
         <div className="mt-1 text-xs text-muted-foreground">{meta}</div>
+        {sub && <div className="mt-0.5 truncate text-[11px] text-muted-foreground/80" title={sub}>{sub}</div>}
       </div>
     </>
   );
@@ -99,7 +100,8 @@ export function ItineraryView({ plan }: { plan: Plan }) {
                   <div className="flex flex-wrap gap-4">
                     {items.map((it) => (
                       <Card key={it.name} image={it.image} name={it.name} link={it.link || undefined} icon={KIND_ICON[it.kind]}
-                            meta={`${it.kind} · ${it.rating ? `★${it.rating} · ` : ""}${priceLabel(it, cur)}`} />
+                            meta={`${it.kind}${it.area ? ` · ${it.area}` : ""} · ${it.rating ? `★${it.rating} · ` : ""}${priceLabel(it, cur)}`}
+                            sub={it.hours || undefined} />
                     ))}
                   </div>
                 )}

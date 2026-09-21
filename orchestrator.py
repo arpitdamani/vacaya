@@ -49,7 +49,7 @@ async def run_specialist(kind: str, req: PlanRequest, cap: float):
 async def write_itinerary(req: PlanRequest, results: dict, over_budget: bool) -> dict:
     act = results["activity"]
     items = "\n".join(
-        f"{i}: {json.dumps({k: v for k, v in it.model_dump().items() if k not in ('image', 'link')})}"
+        f"{i}: {json.dumps({k: v for k, v in it.model_dump().items() if k not in ('image', 'link', 'description')})}"
         for i, it in enumerate(act.items)
     )
     prompt = (
@@ -61,6 +61,23 @@ async def write_itinerary(req: PlanRequest, results: dict, over_budget: bool) ->
         + f"\nExperience items (reference by index):\n{items or '(none)'}"
     )
     return (await Runner.run(writer_agent, prompt)).final_output.model_dump()
+
+
+def dedupe_items(act):
+    """Keep the first occurrence of each place; the agent sometimes lists the same beach on three days."""
+    seen: set[str] = set()
+    kept = []
+    for it in act.items:
+        key = it.name.strip().lower()
+        if key in seen:
+            act.total -= it.price
+            if it.estimated:
+                act.estimated_total -= it.price
+            continue
+        seen.add(key)
+        kept.append(it)
+    act.items = kept
+    return act
 
 
 _SLOT_ORDER = {"morning": 0, "afternoon": 1, "evening": 2}
@@ -98,6 +115,8 @@ async def plan(req: PlanRequest, on_event=None) -> PlanResult:
     async def run(kind):
         on_event(kind, "start", f"cap {caps[kind]:.0f} {req.currency}")
         r = await run_specialist(kind, req, caps[kind])
+        if kind == "activity":
+            r = dedupe_items(r)
         on_event(kind, "done", f"{r.total:.0f} {req.currency}")
         return r
 
@@ -111,9 +130,13 @@ async def plan(req: PlanRequest, on_event=None) -> PlanResult:
         worst = max(results, key=lambda k: results[k].total - caps[k])
         caps[worst] = max(caps[worst] - overage, 0)
         on_event(worst, "retry", f"plan over by {overage:.0f} {req.currency}; new cap {caps[worst]:.0f}")
-        before = results[worst].total
-        results[worst] = await run(worst)
-        if results[worst].total >= before:  # the market floor, not the cap, is the limit; retrying again won't help
+        previous = results[worst]
+        retried = await run(worst)
+        if retried.total <= 0 < previous.total:  # agent gave up rather than exceed the cap: keep the real pick, stop retrying
+            on_event(worst, "done", f"{previous.total:.0f} {req.currency} (kept: no cheaper option)")
+            break
+        results[worst] = retried
+        if retried.total >= previous.total:  # the market floor, not the cap, is the limit; retrying again won't help
             break
 
     totals = {k: r.total for k, r in results.items()}

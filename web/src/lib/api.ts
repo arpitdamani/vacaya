@@ -10,7 +10,7 @@ export type StayPick = { name: string; description: string; stars: string; ratin
 export type ItemKind = "sight" | "experience" | "food" | "nightlife" | "shopping";
 export type ActivityItem = {
   name: string; kind: ItemKind; description: string; price: number; estimated: boolean; rating: number;
-  image: string; link: string; day: number; time_of_day: "morning" | "afternoon" | "evening";
+  area: string; hours: string; image: string; link: string; day: number; time_of_day: "morning" | "afternoon" | "evening";
 };
 export type ActivityPlan = { items: ActivityItem[]; total: number; estimated_total: number; currency: string; reason: string };
 export type Slot = { time_of_day: "morning" | "afternoon" | "evening"; notes: string[]; items: number[] };

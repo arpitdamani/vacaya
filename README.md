@@ -55,6 +55,9 @@ every deploy.
   no prices, so the experience agent gives a typical price and the itinerary marks it `~... est.` with a note under the
   cost table. Listed prices are never invented; estimates are never presented as quotes.
 - Photos are Google/SerpApi CDN thumbnails; the page sends no referrer so they load, and any that 404 are hidden.
+- The experience agent works "knowledge proposes, search verifies": it decides what a local would recommend, then uses
+  targeted Google Maps queries to confirm each place (rating, reviews, photo, hours, link). Only verified places are used;
+  picks need ★4.3+/300+ reviews unless nothing else fits. Days are clustered by neighbourhood and slots respect opening hours.
 - The writer agent assigns items to days/slots and must respect flight times; `orchestrator.reconcile()` then guarantees every
-  item appears exactly once (dropped items go to the lightest day) so the UI never loses a pick.
+  item appears exactly once (dropped items go to the lightest day) so the UI never loses a pick. A budget retry that returns nothing is rejected in favour of the original pick.
 - Nothing is bookable from here.

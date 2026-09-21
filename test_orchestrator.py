@@ -3,7 +3,7 @@ from datetime import date
 from types import SimpleNamespace
 
 import orchestrator
-from orchestrator import PlanRequest, plan, reconcile
+from orchestrator import PlanRequest, dedupe_items, plan, reconcile
 
 REQ = PlanRequest("Madrid", "Paris", date(2026, 10, 10), date(2026, 10, 14), 1, 1000.0, "USD", "")
 
@@ -15,7 +15,7 @@ def setup(monkeypatch, costs):
     async def run_specialist(kind, req, cap):
         calls.append((kind, cap))
         total = costs[kind].pop(0)
-        return SimpleNamespace(total=total, model_dump=lambda: {"total": total, "items": []})
+        return SimpleNamespace(total=total, items=[], model_dump=lambda: {"total": total, "items": []})
 
     async def write_itinerary(req, results, over_budget):
         return {"title": "plan", "days": []}
@@ -81,3 +81,20 @@ def test_reconcile_places_dropped_items_and_dedupes():
     assert out["days"][3]["slots"] == []  # travel day untouched
     used = sorted(i for d in out["days"] for sl in d["slots"] for i in sl["items"])
     assert used == [0, 1, 2]
+
+
+def test_retry_that_returns_nothing_keeps_the_original_pick(monkeypatch):
+    calls = setup(monkeypatch, {"flight": [900, 0], "stay": [300], "activity": [200]})
+    result = asyncio.run(plan(REQ))
+    assert len(calls) == 4
+    assert result.totals["flight"] == 900  # the bail-out is rejected
+    assert result.over_budget is True
+
+
+def test_dedupe_items_keeps_first_and_fixes_totals():
+    mk = lambda name, price, est: SimpleNamespace(name=name, price=price, estimated=est)
+    act = SimpleNamespace(items=[mk("Candolim Beach", 0, False), mk("Deck 88", 1400, True), mk("candolim beach ", 0, False), mk("Deck 88", 1400, True)],
+                          total=2800, estimated_total=2800)
+    out = dedupe_items(act)
+    assert [i.name for i in out.items] == ["Candolim Beach", "Deck 88"]
+    assert out.total == 1400 and out.estimated_total == 1400
