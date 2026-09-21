@@ -38,13 +38,14 @@ Or build once and serve everything from FastAPI: `cd web && npm run build`, then
 
 ## Deploy (Render, free)
 
-1. Push to GitHub (public repo).
-2. https://dashboard.render.com -> **New -> Web Service** -> connect the repo.
-3. Language **Docker**, instance type **Free**, then under **Environment Variables** add `OPENAI_API_KEY` and `SERPAPI_API_KEY`.
-4. **Deploy Web Service**. Render builds the Dockerfile and assigns the port through `$PORT`.
+`render.yaml` describes the service, so:
 
-Free instances sleep after 15 minutes idle and take ~50 s to wake. Plan history lives in a SQLite file inside the
-container, which resets on every deploy.
+1. https://dashboard.render.com -> **New -> Blueprint** -> connect this GitHub repo -> **Apply**.
+2. When prompted, paste `OPENAI_API_KEY` and `SERPAPI_API_KEY`.
+
+Render builds the Dockerfile, binds `$PORT`, and redeploys on every push to `master`. Free instances sleep after
+15 minutes idle and take ~50 s to wake. Plan history lives in a SQLite file inside the container, which resets on
+every deploy.
 
 ## Data caveats
 

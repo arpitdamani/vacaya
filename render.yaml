@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: vacaya
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/plans
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SERPAPI_API_KEY
+        sync: false
