@@ -7,6 +7,7 @@ import { CalendarDays, MapPin, Plane, Sparkles, Users2, Wallet } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { TripInput } from "@/lib/api";
+import cities from "@/lib/cities.json";
 
 const plusDays = (n: number) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
 
@@ -41,12 +42,13 @@ export function TripForm({ onSubmit, disabled }: { onSubmit: (t: TripInput) => v
           <h3 className="font-medium text-card-foreground">Route</h3>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Field icon={<Plane />} label="From">
-              <input className={FIELD} value={t.origin} onChange={(e) => upd("origin", e.target.value)} placeholder="From: Madrid" required />
+              <input className={FIELD} value={t.origin} onChange={(e) => upd("origin", e.target.value)} placeholder="From: Madrid" list="cities" required />
             </Field>
             <Field icon={<MapPin />} label="To">
-              <input className={FIELD} value={t.destination} onChange={(e) => upd("destination", e.target.value)} placeholder="To: Paris" required />
+              <input className={FIELD} value={t.destination} onChange={(e) => upd("destination", e.target.value)} placeholder="To: Paris" list="cities" required />
             </Field>
           </div>
+          <datalist id="cities">{cities.map((c) => <option key={c} value={c} />)}</datalist>
         </motion.div>
 
         <motion.div variants={itemVariants} className="space-y-2">
