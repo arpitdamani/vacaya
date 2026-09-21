@@ -127,4 +127,25 @@
   html {
     @apply font-sans;
     }
+  /* Firefox only: Chromium ignores ::-webkit-scrollbar once these are set */
+  @supports not selector(::-webkit-scrollbar) {
+    html {
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+      }
+    }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 9999px;
+    }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+    }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+    }
 }
